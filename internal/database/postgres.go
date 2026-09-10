@@ -9,7 +9,7 @@ import (
 	"github.com/monte-christo-gilberd/double-entry-accounting-cli/internal/config"
 )
 
-func NewPostgresDB(ctx context.Context, cfg config.Config) (*sql.DB, error) {
+func NewPostgresDB(ctx context.Context, cfg *config.Config) (*sql.DB, error) {
 	dsn := fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
 		cfg.DatabaseUser,
