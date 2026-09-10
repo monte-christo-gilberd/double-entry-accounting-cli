@@ -123,7 +123,7 @@ func (r *PostgresRepository) ListByBookID(
 			&entry.ID,
 			&entry.BookID,
 			&entry.EntryDate,
-			*&entry.Description,
+			&entry.Description,
 			&entry.Status,
 			&entry.CreatedAt,
 		); err != nil {
@@ -135,4 +135,37 @@ func (r *PostgresRepository) ListByBookID(
 		return nil, err
 	}
 	return entries, nil
+}
+
+func (r *PostgresRepository) UpdateStatus(
+	ctx context.Context,
+	id int64,
+	status Status,
+) error {
+	const query = `
+		UPDATE journal_entries
+		SET status = $1
+		WHERE id = $2
+	`
+
+	result, err := r.db.ExecContext(
+		ctx,
+		query,
+		status,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
 }
