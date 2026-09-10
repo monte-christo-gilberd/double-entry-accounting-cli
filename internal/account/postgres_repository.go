@@ -20,7 +20,7 @@ func (r *PostgresRepository) Create(
 	account *Account,
 ) error {
 	const query = `
-		INSERT INTO account (
+		INSERT INTO accounts (
 			book_id,
 			code,
 			name,
@@ -75,6 +75,46 @@ func (r *PostgresRepository) GetByID(
 	if err != nil {
 		return nil, err
 	}
+	return &account, nil
+}
+
+func (r *PostgresRepository) GetByIDAndBookID(
+	ctx context.Context,
+	id int64,
+	bookID int64,
+) (*Account, error) {
+	const query = `
+		SELECT
+			id,
+			book_id,
+			code,
+			name,
+			account_type,
+			created_at
+		FROM accounts
+		WHERE id = $1
+		  AND book_id = $2
+	`
+
+	var account Account
+
+	err := r.db.QueryRowContext(
+		ctx,
+		query,
+		id,
+		bookID,
+	).Scan(
+		&account.ID,
+		&account.BookID,
+		&account.Code,
+		&account.Name,
+		&account.AccountType,
+		&account.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &account, nil
 }
 
