@@ -39,6 +39,7 @@ func (r *PostgresRepository) GetByID(
 	const query = `
 		SELECT id, name, description, created_at
 		FROM books
+		WHERE id = $1
 	`
 	var book Book
 
