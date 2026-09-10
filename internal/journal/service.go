@@ -26,7 +26,9 @@ func (s *Service) CreateDraft(
 	ctx context.Context,
 	entry *JournalEntry,
 ) error {
-	// if err := validate
+	if err := validateJournalEntry(entry); err != nil {
+		return err
+	}
 
 	entry.Status = StatusDraft
 
@@ -76,7 +78,7 @@ func validateJournalEntry(entry *JournalEntry) error {
 			)
 		}
 
-		if line.Debit == 0 || line.Credit == 0 {
+		if line.Debit == 0 && line.Credit == 0 {
 			return fmt.Errorf(
 				"%w: line %d must have debit or credit",
 				ErrInvalidJournal,
