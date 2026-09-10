@@ -5,6 +5,18 @@ import (
 	"testing"
 )
 
+type mockAccountValidator struct {
+	err error
+}
+
+func (m *mockAccountValidator) ValidateBelongsToBook(
+	ctx context.Context,
+	accountID int64,
+	bookID int64,
+) error {
+	return m.err
+}
+
 type mockRepository struct {
 	createCalled bool
 	createdEntry *JournalEntry
@@ -14,6 +26,21 @@ type mockRepository struct {
 	updateStatusCalled bool
 	updatedID          int64
 	updatedStatus      Status
+
+	createAndVoidCalled bool
+	voidedOriginalID    int64
+	voidedReversal      *JournalEntry
+}
+
+func (m *mockRepository) CreateAndVoid(
+	ctx context.Context,
+	originalID int64,
+	reversal *JournalEntry,
+) error {
+	m.createAndVoidCalled = true
+	m.voidedOriginalID = originalID
+	m.voidedReversal = reversal
+	return nil
 }
 
 func (m *mockRepository) Create(
@@ -54,7 +81,7 @@ func (m *mockRepository) UpdateStatus(
 
 func TestCreateDraft(t *testing.T) {
 	repository := &mockRepository{}
-	service := NewService(repository)
+	service := NewService(repository, &mockAccountValidator{})
 
 	entry := &JournalEntry{
 		BookID:      1,
@@ -95,7 +122,7 @@ func TestCreateDraft(t *testing.T) {
 
 func TestCreateDraftRejectsUnbalancedJournal(t *testing.T) {
 	repository := &mockRepository{}
-	service := NewService(repository)
+	service := NewService(repository, &mockAccountValidator{})
 
 	entry := &JournalEntry{
 		BookID:      1,
@@ -148,7 +175,7 @@ func TestPost(t *testing.T) {
 		entry: entry,
 	}
 
-	service := NewService(repository)
+	service := NewService(repository, &mockAccountValidator{})
 
 	err := service.Post(
 		context.Background(),
@@ -201,7 +228,7 @@ func TestPostRejectsAlreadyPostedJournal(t *testing.T) {
 		entry: entry,
 	}
 
-	service := NewService(repository)
+	service := NewService(repository, &mockAccountValidator{})
 
 	err := service.Post(
 		context.Background(),
@@ -217,5 +244,78 @@ func TestPostRejectsAlreadyPostedJournal(t *testing.T) {
 
 	if repository.updateStatusCalled {
 		t.Fatal("UpdateStatus should not be called")
+	}
+}
+
+func TestVoidReversesAPostedEntry(t *testing.T) {
+	entry := &JournalEntry{
+		ID:          1,
+		BookID:      1,
+		Description: "Cash sale",
+		Status:      StatusPosted,
+		Lines: []JournalLine{
+			{AccountID: 1, Debit: 10000},
+			{AccountID: 2, Credit: 10000},
+		},
+	}
+
+	repository := &mockRepository{entry: entry}
+	service := NewService(repository, &mockAccountValidator{})
+
+	err := service.Void(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	if !repository.createAndVoidCalled {
+		t.Fatal("expected CreateAndVoid to be called")
+	}
+	if repository.voidedOriginalID != 1 {
+		t.Fatalf("expected original ID 1, got %d", repository.voidedOriginalID)
+	}
+
+	rev := repository.voidedReversal
+	if rev == nil || len(rev.Lines) != 2 {
+		t.Fatal("expected reversal entry with 2 lines")
+	}
+	// debit/credit must be swapped so balances net back to zero
+	if rev.Lines[0].Credit != 10000 || rev.Lines[1].Debit != 10000 {
+		t.Fatalf("expected debit/credit swapped in reversal, got %+v", rev.Lines)
+	}
+}
+
+func TestVoidRejectsAlreadyVoidedEntry(t *testing.T) {
+	entry := &JournalEntry{
+		ID:     1,
+		BookID: 1,
+		Status: StatusVoided,
+	}
+	repository := &mockRepository{entry: entry}
+	service := NewService(repository, &mockAccountValidator{})
+
+	err := service.Void(context.Background(), 1)
+	if err != ErrJournalVoided {
+		t.Fatalf("expected ErrJournalVoided, got %v", err)
+	}
+	if repository.createAndVoidCalled {
+		t.Fatal("CreateAndVoid should not be called")
+	}
+}
+
+func TestVoidRejectsDraftEntry(t *testing.T) {
+	entry := &JournalEntry{
+		ID:     1,
+		BookID: 1,
+		Status: StatusDraft,
+	}
+	repository := &mockRepository{entry: entry}
+	service := NewService(repository, &mockAccountValidator{})
+
+	err := service.Void(context.Background(), 1)
+	if err != ErrCannotVoidDraft {
+		t.Fatalf("expected ErrCannotVoidDraft, got %v", err)
+	}
+	if repository.createAndVoidCalled {
+		t.Fatal("CreateAndVoid should not be called")
 	}
 }

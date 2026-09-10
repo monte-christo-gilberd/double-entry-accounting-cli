@@ -10,15 +10,23 @@ var (
 	ErrInvalidJournal  = errors.New("invalid journal entry")
 	ErrJournalNotFound = errors.New("journal entry not found")
 	ErrJournalPosted   = errors.New("journal entry already posted")
+	ErrJournalVoided   = errors.New("journal entry already voided")
+	ErrCannotVoidDraft = errors.New("draft entries have no balance effect; delete them instead of voiding")
 )
+
+type AccountValidator interface {
+	ValidateBelongsToBook(ctx context.Context, accountID int64, bookID int64) error
+}
 
 type Service struct {
 	repository Repository
+	accounts   AccountValidator
 }
 
-func NewService(repository Repository) *Service {
+func NewService(repository Repository, account AccountValidator) *Service {
 	return &Service{
 		repository: repository,
+		accounts:   account,
 	}
 }
 
@@ -28,6 +36,20 @@ func (s *Service) CreateDraft(
 ) error {
 	if err := validateJournalEntry(entry); err != nil {
 		return err
+	}
+
+	for _, line := range entry.Lines {
+		if err := s.accounts.ValidateBelongsToBook(
+			ctx,
+			line.AccountID,
+			entry.BookID,
+		); err != nil {
+			return fmt.Errorf(
+				"validate account %d: %w",
+				line.AccountID,
+				err,
+			)
+		}
 	}
 
 	entry.Status = StatusDraft
@@ -139,6 +161,31 @@ func (s *Service) Post(
 		StatusPosted,
 	); err != nil {
 		return fmt.Errorf("post journal entry: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Service) Void(
+	ctx context.Context,
+	id int64,
+) error {
+	entry, err := s.repository.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get journal entry: %w", err)
+	}
+
+	switch entry.Status {
+	case StatusDraft:
+		return ErrCannotVoidDraft
+	case StatusVoided:
+		return ErrJournalVoided
+	}
+
+	reversal := entry.BuildReversal()
+
+	if err := s.repository.CreateAndVoid(ctx, entry.ID, reversal); err != nil {
+		return fmt.Errorf("void journal entry: %w", err)
 	}
 
 	return nil
