@@ -68,7 +68,7 @@ func itoa(id int64) string {
 		id /= 10
 	}
 	if neg {
-		id--
+		i--
 		buf[i] = '-'
 	}
 	return string(buf[i:])
