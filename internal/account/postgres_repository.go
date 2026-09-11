@@ -172,7 +172,7 @@ func (r *PostgresRepository) Update(
 		UPDATE accounts
 		SET code = $1,
 			name = $2,
-			account_type = $3,
+			account_type = $3
 		WHERE id = $4
 	`
 	result, err := r.db.ExecContext(
