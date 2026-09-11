@@ -8,4 +8,11 @@ type Repository interface {
 	ListByBookID(ctx context.Context, bookID int64) ([]JournalEntry, error)
 	UpdateStatus(ctx context.Context, id int64, status Status) error
 	CreateAndVoid(ctx context.Context, originalID int64, reversal *JournalEntry) error
+	ListRecentByBookID(ctx context.Context, bookID int64, limit int) ([]JournalEntry, error)
+	GetAccountBalances(ctx context.Context, bookID int64) ([]AccountBalance, error)
+}
+
+type AccountBalance struct {
+	AccountID int64
+	Balance   float64 // positive = normal debit-side balance; negative = normal credit-side balance
 }

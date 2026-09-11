@@ -278,3 +278,84 @@ func (r *PostgresRepository) UpdateStatus(
 
 	return nil
 }
+
+func (r *PostgresRepository) ListRecentByBookID(
+	ctx context.Context,
+	bookID int64,
+	limit int,
+) ([]JournalEntry, error) {
+	const query = `
+		SELECT
+			id,
+			book_id,
+			entry_date,
+			description,
+			status,
+			created_at
+		FROM journal_entries
+		WHERE book_id = $1
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2
+	`
+	rows, err := r.db.QueryContext(ctx, query, bookID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []JournalEntry
+	for rows.Next() {
+
+		var entry JournalEntry
+		if err := rows.Scan(
+			&entry.ID,
+			&entry.BookID,
+			&entry.EntryDate,
+			&entry.Description,
+			&entry.Status,
+			&entry.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+
+		entries = append(entries, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return entries, nil
+}
+
+func (r *PostgresRepository) GetAccountBalances(
+	ctx context.Context,
+	id int64,
+	status Status,
+) error {
+	const query = `
+		UPDATE journal_entries
+		SET status = $1
+		WHERE id = $2
+	`
+	result, err := r.db.ExecContext(
+		ctx,
+		query,
+		status,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+ 
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+ 
+	return nil
+}

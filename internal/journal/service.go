@@ -190,3 +190,59 @@ func (s *Service) Void(
 
 	return nil
 }
+
+func (s *Service) Transact(
+	ctx context.Context,
+	entry *JournalEntry,
+) error {
+	if err := validateJournalEntry(entry); err != nil {
+		return err
+	}
+
+	for _, line := range entry.Lines {
+		if err := s.accounts.ValidateBelongsToBook(
+			ctx,
+			line.AccountID,
+			entry.BookID,
+		); err != nil {
+			return fmt.Errorf(
+				"validate account %d: %w",
+				line.AccountID,
+				err,
+			)
+		}
+	}
+
+	entry.Status = StatusPosted
+
+	if err := s.repository.Create(ctx, entry); err != nil {
+		return fmt.Errorf("create journal entry: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) ListByBookID(
+	ctx context.Context,
+	bookID int64,
+) ([]JournalEntry, error) {
+	return s.repository.ListByBookID(ctx, bookID)
+}
+
+func (s *Service) ListRecentByBookID(
+	ctx context.Context,
+	bookID int64,
+	limit int,
+) ([]JournalEntry, error) {
+
+	if limit <= 0 {
+		limit = 1
+	}
+	return s.repository.ListRecentByBookID(ctx, bookID, limit)
+}
+
+func (s *Service) GetAccountBalances(
+	ctx context.Context,
+	bookID int64,
+) ([]AccountBalance, error) {
+	return s.repository.GetAccountBalances(ctx, bookID)
+}
