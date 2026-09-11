@@ -121,3 +121,25 @@ func (s *Service) Delete(ctx context.Context, id int64) error {
 
 	return nil
 }
+
+func (s *Service) GetByIDAndBookID(
+	ctx context.Context,
+	id int64,
+	bookID int64,
+) (*Account, error) {
+	if id <= 0 || bookID <= 0 {
+		return nil, fmt.Errorf("%w: invalid ID", ErrInvalidAccount)
+	}
+	acc, err := s.repository.GetByIDAndBookID(ctx, id, bookID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrAccountNotFound, err)
+	}
+	return acc, nil
+}
+
+func (s *Service) ListByBookID(ctx context.Context, bookID int64) ([]Account, error) {
+	if bookID <= 0 {
+		return nil, ErrInvalidAccount
+	}
+	return s.repository.ListByBookID(ctx, bookID)
+}
