@@ -14,6 +14,14 @@ type mockRepository struct {
 	getByIDAndBookIDCalled bool
 	getByIDAndBookIDResult *Account
 	getByIDAndBookIDErr    error
+
+	updateCalled bool
+	updatedAcct  *Account
+	updateErr    error
+
+	deleteCalled bool
+	deletedID    int64
+	deleteErr    error
 }
 
 func (m *mockRepository) Create(ctx context.Context, account *Account) error {
@@ -44,6 +52,18 @@ func (m *mockRepository) GetByIDAndBookID(
 
 func (m *mockRepository) ListByBookID(ctx context.Context, bookID int64) ([]Account, error) {
 	return nil, nil
+}
+
+func (m *mockRepository) Update(ctx context.Context, account *Account) error {
+	m.updateCalled = true
+	m.updatedAcct = account
+	return m.updateErr
+}
+
+func (m *mockRepository) Delete(ctx context.Context, id int64) error {
+	m.deleteCalled = true
+	m.deletedID = id
+	return m.deleteErr
 }
 
 func TestCreate(t *testing.T) {
@@ -237,5 +257,71 @@ func TestValidateBelongsToBookNotFound(t *testing.T) {
 	err := service.ValidateBelongsToBook(context.Background(), 1, 1)
 	if !errors.Is(err, ErrAccountNotFound) {
 		t.Fatalf("expected ErrAccountNotFound, got %v", err)
+	}
+}
+
+func TestUpdate(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository)
+
+	account := &Account{
+		ID:          1,
+		BookID:      1,
+		Code:        "1000",
+		Name:        "Cash",
+		AccountType: "ASSET",
+	}
+
+	if err := service.Update(context.Background(), account); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !repository.updateCalled {
+		t.Fatal("expected Update to be called")
+	}
+}
+
+func TestUpdateRejectsInvalidID(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository)
+
+	account := &Account{
+		ID:          0,
+		BookID:      1,
+		Code:        "1000",
+		Name:        "Cash",
+		AccountType: "ASSET",
+	}
+
+	err := service.Update(context.Background(), account)
+	if !errors.Is(err, ErrInvalidAccount) {
+		t.Fatalf("expected ErrInvalidAccount, got %v", err)
+	}
+	if repository.updateCalled {
+		t.Fatal("repository Update should not be called")
+	}
+}
+
+func TestDelete(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository)
+
+	if err := service.Delete(context.Background(), 1); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !repository.deleteCalled || repository.deletedID != 1 {
+		t.Fatalf("expected Delete to be called with ID 1, got called=%v id=%d", repository.deleteCalled, repository.deletedID)
+	}
+}
+
+func TestDeleteRejectsInvalidID(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository)
+
+	err := service.Delete(context.Background(), 0)
+	if !errors.Is(err, ErrInvalidAccount) {
+		t.Fatalf("expected ErrInvalidAccount, got %v", err)
+	}
+	if repository.deleteCalled {
+		t.Fatal("repository Delete should not be called")
 	}
 }

@@ -3,6 +3,7 @@ package journal
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 type mockAccountValidator struct {
@@ -79,6 +80,21 @@ func (m *mockRepository) UpdateStatus(
 	return nil
 }
 
+func (m *mockRepository) ListRecentByBookID(
+	ctx context.Context,
+	bookID int64,
+	limit int,
+) ([]JournalEntry, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) GetAccountBalances(
+	ctx context.Context,
+	bookID int64,
+) ([]AccountBalance, error) {
+	return nil, nil
+}
+
 func TestCreateDraft(t *testing.T) {
 	repository := &mockRepository{}
 	service := NewService(repository, &mockAccountValidator{})
@@ -86,6 +102,7 @@ func TestCreateDraft(t *testing.T) {
 	entry := &JournalEntry{
 		BookID:      1,
 		Description: "Cash sale",
+		EntryDate:   time.Now(),
 		Lines: []JournalLine{
 			{
 				AccountID: 1,
@@ -158,6 +175,7 @@ func TestPost(t *testing.T) {
 		ID:          1,
 		BookID:      1,
 		Description: "Cash sale",
+		EntryDate:   time.Now(),
 		Status:      StatusDraft,
 		Lines: []JournalLine{
 			{
