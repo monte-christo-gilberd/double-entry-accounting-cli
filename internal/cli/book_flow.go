@@ -76,7 +76,7 @@ func selectBookFlow(
 	}
 
 	selected := books[idx-1]
-	bookMenu(ctx, &selected, bookService, accountService, journalService)
+	bookMenu(ctx, &selected, accountService, journalService)
 }
 
 func deleteBookFlow(ctx context.Context, bookService *book.Service) {
@@ -121,7 +121,6 @@ func deleteBookFlow(ctx context.Context, bookService *book.Service) {
 func bookMenu(
 	ctx context.Context,
 	b *book.Book,
-	bookService *book.Service,
 	accountService *account.Service,
 	journalService *journal.Service,
 ) {
