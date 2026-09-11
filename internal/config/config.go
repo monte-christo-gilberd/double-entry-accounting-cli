@@ -21,7 +21,7 @@ func Load() (*Config, error) {
 	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	return &Config{
+	cfg := &Config{
 		AppEnv:           os.Getenv("APP_ENV"),
 		DatabaseHost:     os.Getenv("DATABASE_HOST"),
 		DatabasePort:     os.Getenv("DATABASE_PORT"),
@@ -29,5 +29,21 @@ func Load() (*Config, error) {
 		DatabasePassword: os.Getenv("DATABASE_PASSWORD"),
 		DatabaseName:     os.Getenv("DATABASE_NAME"),
 		DatabaseSSLMode:  os.Getenv("DATABASE_SSLMODE"),
-	}, nil
+	}
+	if cfg.DatabaseHost == "" {
+		return nil, errors.New("DATABASE_HOST is required")
+	}
+	if cfg.DatabasePort == "" {
+		return nil, errors.New("DATABASE_PORT is required")
+	}
+	if cfg.DatabaseUser == "" {
+		return nil, errors.New("DATABASE_USER is required")
+	}
+	if cfg.DatabaseName == "" {
+		return nil, errors.New("DATABASE_NAME is required")
+	}
+	if cfg.DatabaseSSLMode == "" {
+		cfg.DatabaseSSLMode = "disable"
+	}
+	return cfg, nil
 }
