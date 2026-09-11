@@ -90,3 +90,34 @@ func validateAccount(account *Account) error {
 
 	return nil
 }
+
+func (s *Service) Update(
+	ctx context.Context,
+	account *Account,
+) error {
+	if account != nil && account.ID <= 0 {
+		return fmt.Errorf("%w: invalid account ID", ErrInvalidAccount)
+	}
+
+	if err := validateAccount(account); err != nil {
+		return err
+	}
+
+	if err := s.repository.Update(ctx, account); err != nil {
+		return fmt.Errorf("update account: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Service) Delete(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return fmt.Errorf("%w: invalid account ID", ErrInvalidAccount)
+	}
+
+	if err := s.repository.Delete(ctx, id); err != nil {
+		return fmt.Errorf("delete account: %w", err)
+	}
+
+	return nil
+}

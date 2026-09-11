@@ -163,3 +163,61 @@ func (r *PostgresRepository) ListByBookID(
 	}
 	return accounts, nil
 }
+
+func (r *PostgresRepository) Update(
+	ctx context.Context,
+	account *Account,
+) error {
+	const query = `
+		UPDATE accounts
+		SET code = $1,
+			name = $2,
+			account_type = $3,
+		WHERE id = $4
+	`
+	result, err := r.db.ExecContext(
+		ctx,
+		query,
+		account.Code,
+		account.Name,
+		account.AccountType,
+		account.ID,
+	)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+func (r *PostgresRepository) Delete(
+	ctx context.Context,
+	id int64,
+) error {
+	const query = `DELETE FROM accounts WHERE id = $1`
+
+	result, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
