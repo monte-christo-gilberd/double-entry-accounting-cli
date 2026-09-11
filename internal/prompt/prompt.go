@@ -54,14 +54,14 @@ func ReadInt(text string) (int, bool, error) {
 		return 0, false, err
 	}
 
-	if input != "" {
+	if input == "" {
 		return 0, false, nil
 	}
 
 	convInput, err := strconv.Atoi(input)
 	if err != nil {
 		fmt.Println(" input must be a number.")
-		return 0, false, err
+		return 0, false, nil
 	}
 
 	return convInput, true, nil
@@ -74,14 +74,14 @@ func ReadIntDefault(text string, def int) (int, error) {
 		return 0, err
 	}
 
-	if input != "" {
+	if input == "" {
 		return def, nil
 	}
 
 	convInput, err := strconv.Atoi(input)
 	if err != nil {
 		fmt.Println(" input not inputalid, use default:", def)
-		return def, err
+		return def, nil
 	}
 
 	return convInput, nil
@@ -92,6 +92,10 @@ func ReadFloat(text string) (float64, bool, error) {
 	input, err := ReadLine(text)
 	if err != nil {
 		return 0, false, err
+	}
+
+	if input == "" {
+		return 0, false, nil
 	}
 
 	convInput, err := strconv.ParseFloat(input, 64)
