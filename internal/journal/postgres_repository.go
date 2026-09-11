@@ -189,8 +189,18 @@ func (r *PostgresRepository) CreateAndVoid(
 	}
 
 	const voidQuery = `UPDATE journal_entries SET status = $1 WHERE id = $2`
-	if _, err := tx.ExecContext(ctx, voidQuery, StatusVoided, originalID); err != nil {
+	result, err := tx.ExecContext(ctx, voidQuery, StatusVoided, originalID)
+	if err != nil {
 		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
 	}
 
 	return tx.Commit()
@@ -330,32 +340,34 @@ func (r *PostgresRepository) ListRecentByBookID(
 
 func (r *PostgresRepository) GetAccountBalances(
 	ctx context.Context,
-	id int64,
-	status Status,
-) error {
+	bookID int64,
+) ([]AccountBalance, error) {
 	const query = `
-		UPDATE journal_entries
-		SET status = $1
-		WHERE id = $2
+		SELECT jl.account_id,
+		       COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0) AS balance
+		FROM journal_lines jl
+		JOIN journal_entries je ON je.id = jl.journal_entry_id
+		WHERE je.book_id = $1
+		  AND je.status = 'POSTED'
+		GROUP BY jl.account_id
 	`
-	result, err := r.db.ExecContext(
-		ctx,
-		query,
-		status,
-		id,
-	)
-	if err != nil {
-		return err
-	}
 
-	rowsAffected, err := result.RowsAffected()
+	rows, err := r.db.QueryContext(ctx, query, bookID)
 	if err != nil {
-		return err
+		return nil, err
 	}
- 
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
+	defer rows.Close()
+
+	var balances []AccountBalance
+	for rows.Next() {
+		var b AccountBalance
+		if err := rows.Scan(&b.AccountID, &b.Balance); err != nil {
+			return nil, err
+		}
+		balances = append(balances, b)
 	}
- 
-	return nil
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return balances, nil
 }
