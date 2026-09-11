@@ -44,7 +44,7 @@ func listBooksNumbered(ctx context.Context, bookService *book.Service) []book.Bo
 		return nil
 	}
 	if len(books) == 0 {
-		fmt.Println("No avaiable book. Create book first from menu 1.")
+		fmt.Println("No available book. Create book first from menu 1.")
 		return nil
 	}
 	for i, book := range books {
@@ -85,7 +85,7 @@ func deleteBookFlow(ctx context.Context, bookService *book.Service) {
 		return
 	}
 
-	idx, ok, err := prompt.ReadInt("Select the book you want to delete.  (number): ")
+	idx, ok, err := prompt.ReadInt("Select the book you want to delete (number): ")
 	if err != nil {
 		fmt.Println("Failed to delete book:", err)
 		return
@@ -136,7 +136,7 @@ func bookMenu(
 		fmt.Println("7. Delete Account")
 		fmt.Println("0. Back to Main Menu")
 
-		choice, ok, err := prompt.ReadInt("Pilih menu: ")
+		choice, ok, err := prompt.ReadInt("Select menu: ")
 		if err != nil {
 			fmt.Println("failed to read input: ", err)
 		}

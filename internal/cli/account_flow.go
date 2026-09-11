@@ -15,7 +15,7 @@ func addAccount(ctx context.Context, bookID int64, accountService *account.Servi
 		fmt.Println("Failed to create account:", err)
 		return
 	}
-	name, err := prompt.ReadRequiredLine("Nama account: ")
+	name, err := prompt.ReadRequiredLine("Account name: ")
 	if err != nil {
 		fmt.Println("Failed to create account:", err)
 		return
@@ -33,13 +33,13 @@ func addAccount(ctx context.Context, bookID int64, accountService *account.Servi
 		fmt.Println("Failed to create account:", err)
 		return
 	}
-	fmt.Printf("Account dibuat: id=%d %s - %s\n", a.ID, a.Code, a.Name)
+	fmt.Printf("Account created: id=%d %s - %s\n", a.ID, a.Code, a.Name)
 }
 
 func readAccountType() string {
 	for {
 		fmt.Println("Account Type: ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE")
-		accType, err := prompt.ReadRequiredLine("Pilih tipe: ")
+		accType, err := prompt.ReadRequiredLine("Select type: ")
 		if err != nil {
 			fmt.Println("Failed to read account type:", err)
 			return ""
