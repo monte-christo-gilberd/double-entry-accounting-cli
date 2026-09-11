@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 )
 
 var (
@@ -74,10 +75,11 @@ func validateJournalEntry(entry *JournalEntry) error {
 	}
 
 	if len(entry.Lines) < 2 {
-		return fmt.Errorf(
-			"%w: journal must have at least 2 lines",
-			ErrInvalidJournal,
-		)
+		return fmt.Errorf("%w: journal must have at least 2 lines", ErrInvalidJournal)
+	}
+
+	if entry.EntryDate.IsZero() {
+		return fmt.Errorf("%w: date is required", ErrInvalidJournal)
 	}
 
 	var totalDebit float64
@@ -127,7 +129,7 @@ func validateJournalEntry(entry *JournalEntry) error {
 		)
 	}
 
-	if totalDebit != totalCredit {
+	if math.Abs(totalDebit-totalCredit) > 1e-9 {
 		return fmt.Errorf(
 			"%w: debit %.2f does not equal credit %.2f",
 			ErrInvalidJournal,
@@ -149,6 +151,10 @@ func (s *Service) Post(
 
 	if entry.Status == StatusPosted {
 		return ErrJournalPosted
+	}
+
+	if entry.Status == StatusVoided {
+		return ErrJournalVoided
 	}
 
 	if err := validateJournalEntry(entry); err != nil {
@@ -180,12 +186,13 @@ func (s *Service) Void(
 		return ErrCannotVoidDraft
 	case StatusVoided:
 		return ErrJournalVoided
-	}
-
-	reversal := entry.BuildReversal()
-
-	if err := s.repository.CreateAndVoid(ctx, entry.ID, reversal); err != nil {
-		return fmt.Errorf("void journal entry: %w", err)
+	case StatusPosted:
+		reversal := entry.BuildReversal()
+		if err := s.repository.CreateAndVoid(ctx, entry.ID, reversal); err != nil {
+			return fmt.Errorf("void journal entry: %w", err)
+		}
+	default: 
+		return fmt.Errorf("%w: status %s", ErrInvalidJournal, entry.Status)
 	}
 
 	return nil
