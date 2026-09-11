@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/monte-christo-gilberd/double-entry-accounting-cli/internal/config"
@@ -12,12 +13,12 @@ import (
 func NewPostgresDB(ctx context.Context, cfg *config.Config) (*sql.DB, error) {
 	dsn := fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=%s",
-		cfg.DatabaseUser,
-		cfg.DatabasePassword,
+		url.QueryEscape(cfg.DatabaseUser),
+		url.QueryEscape(cfg.DatabasePassword),
 		cfg.DatabaseHost,
 		cfg.DatabasePort,
-		cfg.DatabaseName,
-		cfg.DatabaseSSLMode,
+		url.PathEscape(cfg.DatabaseName),
+		url.QueryEscape(cfg.DatabaseSSLMode),
 	)
 
 	db, err := sql.Open("pgx", dsn)
