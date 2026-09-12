@@ -27,7 +27,23 @@ func main() {
 		fmt.Println("Failed to connect database:", err)
 		os.Exit(1)
 	}
+
 	defer db.Close()
+
+	// migrate subcommand: go run ./cmd/accounting migrate
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		if err := database.Migrate(ctx, db); err != nil {
+			fmt.Println("Migration failed:", err)
+			os.Exit(1)
+		}
+		fmt.Println("Migrations completed")
+		return
+	}
+	// auto-migrate on normal run
+	if err := database.Migrate(ctx, db); err != nil {
+		fmt.Println("Auto-migrate failed:", err)
+		os.Exit(1)
+	}
 
 	bookService := book.NewService(book.NewPostgresRepository(db))
 	accountService := account.NewService(account.NewPostgresRepository(db))
