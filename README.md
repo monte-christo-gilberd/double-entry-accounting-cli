@@ -14,9 +14,8 @@ A standalone CLI application for offline double-entry accounting, built with Go 
 
 ## Tech Stack
 
-- Go 1.23
+- Go 1.25
 - PostgreSQL 14+ (tested with `pgx/v5`)
-- github.com/spf13/cobra (CLI)
 - github.com/jackc/pgx/v5 (PostgreSQL driver)
 - github.com/joho/godotenv (env loading)
 
@@ -24,9 +23,10 @@ A standalone CLI application for offline double-entry accounting, built with Go 
 
 Before running this project, make sure you have:
 
-- Go 1.23+
-- PostgreSQL 14+ (18+ recommended)
+- Go 1.25+
+- PostgreSQL 14+ (18+ recommended) running locally (`DATABASE_HOST=localhost`)
 - Git
+- `createdb`/`psql` in PATH (for one-click DB creation, optional)
 
 ## Installation
 
@@ -37,6 +37,15 @@ git clone https://github.com/monte-christo-gilberd/double-entry-accounting-cli.g
 cd double-entry-accounting-cli
 ```
 
+### Option A — One-click (Windows / Bash, no Docker)
+
+**Windows:** double-click `init.bat`
+**Bash/macOS/Linux:** `./init.sh` (or `chmod +x init.sh && ./init.sh`)
+
+This does: `copy .env.example -> .env` if missing → `createdb` (reads `.env`) → `go mod tidy` → `go run ./cmd/accounting migrate` (explicit) → `go run ./cmd/accounting` (auto-migrate + start). No `docker-compose.yml` needed.
+
+### Option B — Manual
+
 Configure environment:
 
 ```bash
@@ -44,26 +53,24 @@ cp .env.example .env
 # edit .env — set DATABASE_HOST, DATABASE_PORT, DATABASE_USER, DATABASE_PASSWORD, DATABASE_NAME, DATABASE_SSLMODE
 ```
 
-Create database and run migrations in order:
+Create database (once):
 
 ```bash
-createdb double_entry_accounting
-psql $DATABASE_URL -f migrations/01_initial_schema.sql
-psql $DATABASE_URL -f migrations/02_account_constraints.sql
-psql $DATABASE_URL -f migrations/03_journal_integrity.sql
-psql $DATABASE_URL -f migrations/04_journal_status.sql
-psql $DATABASE_URL -f migrations/05_journal_voiding.sql
-psql $DATABASE_URL -f migrations/06_fix_book_cascade.sql
+createdb -h localhost -U postgres double_entry_accounting_db
+# or: psql -h localhost -U postgres -c "CREATE DATABASE double_entry_accounting_db;"
 ```
 
-Run the app:
+Run the app (migrations run automatically):
 
 ```bash
 go mod tidy
-go run ./cmd/accounting
+go run ./cmd/accounting migrate  # explicit: migrate and exit
+go run ./cmd/accounting          # auto-migrate on every start, then launch CLI
 # or build
 go build -o bin/accounting ./cmd/accounting && ./bin/accounting
 ```
+
+Migrations are handled in Go by `internal/database/migrate.go` (`os.ReadDir("migrations")` sorted + `db.ExecContext` per `*.sql`, `already exists` ignored, per-file transaction) — manual `psql -f` is no longer needed.
 
 ## Project Structure
 
@@ -71,7 +78,7 @@ go build -o bin/accounting ./cmd/accounting && ./bin/accounting
 double-entry-accounting-cli
 ├─ cmd
 │  └─ accounting
-│     └─ main.go
+│     └─ main.go          # + migrate/auto-migrate wiring
 ├─ internal
 │  ├─ account
 │  │  ├─ account.go
@@ -91,7 +98,8 @@ double-entry-accounting-cli
 │  ├─ config
 │  │  └─ config.go
 │  ├─ database
-│  │  └─ postgres.go
+│  │  ├─ postgres.go
+│  │  └─ migrate.go       # in-code migrator (no psql -f)
 │  ├─ journal
 │  │  ├─ journal.go
 │  │  ├─ postgres_repository.go
@@ -107,6 +115,9 @@ double-entry-accounting-cli
 │  ├─ 04_journal_status.sql
 │  ├─ 05_journal_voiding.sql
 │  └─ 06_fix_book_cascade.sql
+├─ init.bat               # one-click Windows
+├─ init.sh                # one-click Bash
+├─ .env.example
 ├─ go.mod
 └─ README.md
 ```
