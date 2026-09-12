@@ -39,10 +39,10 @@ cd double-entry-accounting-cli
 
 ### Option A — One-click (Windows / Bash, no Docker)
 
-**Windows:** double-click `init.bat`
-**Bash/macOS/Linux:** `./init.sh` (or `chmod +x init.sh && ./init.sh`)
+**Windows:** double-click `init.bat` (no `cmd` needed, ends with `Press any key to continue . . .` via `pause`)
+**Bash/macOS/Linux:** `./init.sh` (or `chmod +x init.sh && ./init.sh`, LF line endings)
 
-This does: `copy .env.example -> .env` if missing → `createdb` (reads `.env`) → `go mod tidy` → `go run ./cmd/accounting migrate` (explicit) → `go run ./cmd/accounting` (auto-migrate + start). No `docker-compose.yml` needed.
+This does: `copy .env.example -> .env` if missing → `createdb` via `PGPASSWORD` from `.env` (no `Password:` prompt, prints `DB check done.` / `DB exists or created`) → `go mod tidy` → `go run ./cmd/accounting migrate` (explicit) → `go run ./cmd/accounting` (auto-migrate + start). No `docker-compose.yml` needed.
 
 ### Option B — Manual
 
