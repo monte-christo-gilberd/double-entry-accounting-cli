@@ -1,16 +1,19 @@
 package prompt
 
 import (
+	"errors"
+	"fmt"
+	"io"
 	"testing"
 )
 
 func TestParseIntDefault(t *testing.T) {
 	cases := []struct {
-		name      string
-		input     string
-		def       int
-		want      int
-		wantOK    bool
+		name   string
+		input  string
+		def    int
+		want   int
+		wantOK bool
 	}{
 		{name: "empty uses default", input: "", def: 1, want: 1, wantOK: true},
 		{name: "valid number", input: "5", def: 1, want: 5, wantOK: true},
@@ -29,5 +32,22 @@ func TestParseIntDefault(t *testing.T) {
 					tc.input, tc.def, got, ok, tc.want, tc.wantOK)
 			}
 		})
+	}
+}
+
+func TestMapReadError(t *testing.T) {
+	if err := mapReadError(io.EOF); !errors.Is(err, ErrInputClosed) {
+		t.Fatalf("expected ErrInputClosed, got %v", err)
+	}
+	if err := mapReadError(fmt.Errorf("wrap: %w", io.EOF)); !errors.Is(err, ErrInputClosed) {
+		t.Fatalf("expected ErrInputClosed for wrapped EOF, got %v", err)
+	}
+	other := errors.New("boom")
+	err := mapReadError(other)
+	if !errors.Is(err, other) {
+		t.Fatalf("expected original error wrapped, got %v", err)
+	}
+	if errors.Is(err, ErrInputClosed) {
+		t.Fatalf("non-EOF error must not map to ErrInputClosed: %v", err)
 	}
 }

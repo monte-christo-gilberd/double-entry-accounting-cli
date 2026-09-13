@@ -2,11 +2,18 @@ package prompt
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
 )
+
+// ErrInputClosed is returned when stdin is closed (EOF), e.g. piped input
+// runs out. Menus treat it as "go back / exit" instead of reprompting,
+// which would otherwise spin forever on EOF.
+var ErrInputClosed = errors.New("input closed")
 
 var reader = bufio.NewReader(os.Stdin)
 
@@ -15,9 +22,18 @@ func ReadLine(text string) (string, error) {
 
 	line, err := reader.ReadString('\n')
 	if err != nil {
-		return "", fmt.Errorf("read input: %w", err)
+		return "", mapReadError(err)
 	}
 	return strings.TrimSpace(line), nil
+}
+
+// mapReadError maps a closed stdin to ErrInputClosed (so errors.Is works)
+// and wraps any other read failure with context.
+func mapReadError(err error) error {
+	if errors.Is(err, io.EOF) {
+		return ErrInputClosed
+	}
+	return fmt.Errorf("read input: %w", err)
 }
 
 func ReadRequiredLine(text string) (string, error) {

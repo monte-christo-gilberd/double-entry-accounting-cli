@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/monte-christo-gilberd/double-entry-accounting-cli/internal/account"
@@ -139,6 +140,9 @@ func bookMenu(
 
 		choice, ok, err := prompt.ReadInt("Select menu: ")
 		if err != nil {
+			if errors.Is(err, prompt.ErrInputClosed) {
+				return
+			}
 			fmt.Println("failed to read input: ", err)
 			continue
 		}

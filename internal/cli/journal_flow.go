@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -20,6 +21,9 @@ func transactionLogMenu(ctx context.Context, bookID int64, accountService *accou
 
 		choice, ok, err := prompt.ReadInt("Select Menu: ")
 		if err != nil {
+			if errors.Is(err, prompt.ErrInputClosed) {
+				return
+			}
 			fmt.Println("failed to get transaction log: ", err)
 			continue
 		}

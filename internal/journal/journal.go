@@ -33,12 +33,17 @@ type JournalEntry struct {
 	Lines       []JournalLine
 }
 
+// BuildReversal builds the offsetting entry for Void. The reversal is
+// VOIDED, not POSTED: VOIDED uniformly means "excluded from balances,
+// audit trail only". The balance query sums POSTED entries only, so the
+// voided original (now VOIDED, excluded) is removed exactly once — a POSTED
+// reversal would subtract it a second time and double-count the void.
 func (e *JournalEntry) BuildReversal() *JournalEntry {
 	reversal := &JournalEntry{
 		BookID:      e.BookID,
 		EntryDate:   time.Now(),
 		Description: "Void of entry #" + strconv.FormatInt(e.ID, 10) + ": " + e.Description,
-		Status:      StatusPosted,
+		Status:      StatusVoided,
 		ReversalOf:  &e.ID,
 	}
 	for _, line := range e.Lines {

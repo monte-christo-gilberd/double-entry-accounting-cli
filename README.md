@@ -6,11 +6,11 @@ A standalone CLI application for offline double-entry accounting, built with Go 
 
 - Book Management — Create, select, and delete accounting books (cascade deletes handled)
 - Chart of Accounts — Add, edit, list, and delete accounts with types `ASSET`, `LIABILITY`, `EQUITY`, `REVENUE`, `EXPENSE` and unique code per book
-- Double-Entry Transactions — Perform validated transactions (≥2 lines, debit = credit, account belongs to book)
-- Transaction Log — View all logs or last N logs ordered by entry date / created time
-- Account Balances — View total value per account calculated from `POSTED` journals (`SUM(debit)-SUM(credit)`)
-- Posting & Voiding — Draft → Posted flow and void via reversal entry (balances restored)
-- Offline CLI — Interactive prompt menus with input validation
+- Double-Entry Transactions — Perform validated transactions (≥2 lines, debit = credit, one line per account, account belongs to book, amounts rounded to 4 decimals)
+- Transaction Log — View all logs or last N logs with per-line debit/credit detail, account names, and reversal markers, ordered by entry date / created time
+- Account Balances — View totals per account from `POSTED` journals in normal-balance form (`150.75 Dr` / `5000.00 Cr`)
+- Posting & Voiding — Draft → Posted flow; voiding flips the original to `VOIDED` and records a `VOIDED` reversal (audit-only), so balances are restored exactly once
+- Offline CLI — Interactive prompt menus with validation, reprompts on bad input, and clean exit on closed stdin (EOF)
 
 ## Tech Stack
 
@@ -70,7 +70,7 @@ go run ./cmd/accounting          # auto-migrate on every start, then launch CLI
 go build -o bin/accounting ./cmd/accounting && ./bin/accounting
 ```
 
-Migrations are handled in Go by `internal/database/migrate.go` (`os.ReadDir("migrations")` sorted + `db.ExecContext` per `*.sql`, `already exists` ignored, per-file transaction) — manual `psql -f` is no longer needed.
+Migrations are handled in Go by `internal/database/migrate.go` (`os.ReadDir("migrations")` sorted + `db.ExecContext` per `*.sql`, duplicate objects skipped via Postgres SQLSTATE codes, per-file transaction) — manual `psql -f` is no longer needed. Re-running the app re-applies `migrations/` idempotently, including data repairs such as `08_fix_reversal_status.sql`.
 
 ## Project Structure
 
@@ -94,7 +94,8 @@ double-entry-accounting-cli
 │  │  ├─ cli.go
 │  │  ├─ book_flow.go
 │  │  ├─ account_flow.go
-│  │  └─ journal_flow.go
+│  │  ├─ journal_flow.go
+│  │  └─ journal_flow_test.go
 │  ├─ config
 │  │  └─ config.go
 │  ├─ database
@@ -107,14 +108,17 @@ double-entry-accounting-cli
 │  │  ├─ service.go
 │  │  └─ service_test.go
 │  └─ prompt
-│     └─ prompt.go
+│     ├─ prompt.go
+│     └─ prompt_test.go
 ├─ migrations
 │  ├─ 01_initial_schema.sql
 │  ├─ 02_account_constraints.sql
 │  ├─ 03_journal_integrity.sql
 │  ├─ 04_journal_status.sql
 │  ├─ 05_journal_voiding.sql
-│  └─ 06_fix_book_cascade.sql
+│  ├─ 06_fix_book_cascade.sql
+│  ├─ 07_fix_reversal_fk.sql
+│  └─ 08_fix_reversal_status.sql
 ├─ init.bat               # one-click Windows
 ├─ init.sh                # one-click Bash
 ├─ .env.example
@@ -124,8 +128,21 @@ double-entry-accounting-cli
 
 ## Usage
 
-1. Main Menu: Create New Book → Select Existing Book → Delete Book
-2. Inside Book: View Transaction Log (headers + per-line debit/credit detail) → View Account Balances (normal-balance `Dr`/`Cr`) → Perform Transaction (enter `0` as Account ID to finish, `d`/`c` for debit/credit) → Cancel Transaction (voids posted entry via reversal; reversals excluded) → Add/Edit/Delete Account → Create Draft Transaction → Post Draft Transaction (drafts don't affect balances until posted)
+1. Main Menu: Create New Book → Select Existing Book → Delete Book (cascade deletes everything inside, with confirmation) → Close
+2. Inside Book:
+
+```
+1. View Transaction Log      # all logs or last N, with per-line Dr/Cr detail
+2. View Account Balances      # normal-balance Dr/Cr per account
+3. Perform Transaction        # posts immediately (0 as Account ID finishes, d/c per line)
+4. Cancel Transaction         # voids a POSTED entry (reversals can't be voided)
+5. Add Account
+6. Edit Account               # empty input keeps the current value
+7. Delete Account             # blocked while the account has transactions
+8. Create Draft Transaction   # saved as DRAFT, no balance effect
+9. Post Draft Transaction     # DRAFT → POSTED, balances move
+0. Back to Main Menu
+```
 
 ## Testing
 

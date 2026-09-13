@@ -34,3 +34,8 @@ coverage.out
 # =========================
 .DS_Store
 Thumbs.db
+
+# =========================
+# Local simulation notes (scratch, never commit)
+# =========================
+SIMULATION.md

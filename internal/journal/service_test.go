@@ -322,6 +322,52 @@ func TestVoidReversesAPostedEntry(t *testing.T) {
 	if rev.Lines[0].Credit != 10000 || rev.Lines[1].Debit != 10000 {
 		t.Fatalf("expected debit/credit swapped in reversal, got %+v", rev.Lines)
 	}
+	// reversal must be VOIDED (audit only): the POSTED-only balance query
+	// already drops the voided original, so a POSTED reversal would
+	// subtract the entry a second time and double-count the void.
+	if rev.Status != StatusVoided {
+		t.Fatalf("expected reversal status %s, got %s", StatusVoided, rev.Status)
+	}
+}
+
+func TestVoidReversalLeavesBalancesNetZero(t *testing.T) {
+	// Simulates the POSTED-only balance query over: original (now VOIDED,
+	// excluded), unrelated POSTED entry, reversal (VOIDED, excluded).
+	// Only the unrelated entry may contribute.
+	originalID := int64(1)
+	entries := []JournalEntry{
+		{ID: 1, Status: StatusVoided, Lines: []JournalLine{{AccountID: 1, Debit: 150}}},
+		{ID: 2, Status: StatusPosted, Lines: []JournalLine{{AccountID: 1, Debit: 10}}},
+	}
+	entry := &JournalEntry{
+		ID: 1, BookID: 1, Description: "Sale", Status: StatusPosted,
+		Lines: []JournalLine{{AccountID: 1, Debit: 150}, {AccountID: 2, Credit: 150}},
+	}
+	repository := &mockRepository{entry: entry}
+	service := NewService(repository, &mockAccountValidator{})
+
+	if err := service.Void(context.Background(), 1, 1); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	rev := repository.voidedReversal
+	entries = append(entries, JournalEntry{
+		ID: 3, Status: rev.Status, ReversalOf: &originalID, Lines: rev.Lines,
+	})
+
+	var balance float64
+	for _, e := range entries {
+		if e.Status != StatusPosted {
+			continue
+		}
+		for _, l := range e.Lines {
+			if l.AccountID == 1 {
+				balance += l.Debit - l.Credit
+			}
+		}
+	}
+	if balance != 10 {
+		t.Fatalf("void double-counted: balance = %v, want 10", balance)
+	}
 }
 
 func TestVoidRejectsAlreadyVoidedEntry(t *testing.T) {
