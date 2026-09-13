@@ -125,7 +125,7 @@ double-entry-accounting-cli
 ## Usage
 
 1. Main Menu: Create New Book → Select Existing Book → Delete Book
-2. Inside Book: View Transaction Log → View Account Balances → Perform Transaction (enter `0` as Account ID to finish, `d`/`c` for debit/credit) → Cancel Transaction (voids posted entry via reversal) → Add/Edit/Delete Account
+2. Inside Book: View Transaction Log (headers + per-line debit/credit detail) → View Account Balances (normal-balance `Dr`/`Cr`) → Perform Transaction (enter `0` as Account ID to finish, `d`/`c` for debit/credit) → Cancel Transaction (voids posted entry via reversal; reversals excluded) → Add/Edit/Delete Account → Create Draft Transaction → Post Draft Transaction (drafts don't affect balances until posted)
 
 ## Testing
 

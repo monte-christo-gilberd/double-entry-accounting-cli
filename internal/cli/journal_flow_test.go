@@ -23,6 +23,22 @@ func TestCancelableEntriesExcludesReversals(t *testing.T) {
 	}
 }
 
+func TestDraftEntries(t *testing.T) {
+	entries := []journal.JournalEntry{
+		{ID: 1, Status: journal.StatusDraft},
+		{ID: 2, Status: journal.StatusPosted},
+		{ID: 3, Status: journal.StatusVoided},
+		{ID: 4, Status: journal.StatusDraft},
+	}
+	got := draftEntries(entries)
+	if len(got) != 2 || got[0].ID != 1 || got[1].ID != 4 {
+		t.Fatalf("expected drafts #1 and #4, got %+v", got)
+	}
+	if got := draftEntries(nil); len(got) != 0 {
+		t.Fatalf("expected no drafts, got %+v", got)
+	}
+}
+
 func TestCancelableEntriesEmpty(t *testing.T) {
 	if got := cancelableEntries(nil); len(got) != 0 {
 		t.Fatalf("expected no cancelable entries, got %+v", got)

@@ -2,13 +2,18 @@ package account
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var (
 	ErrInvalidAccount  = errors.New("invalid account")
 	ErrAccountNotFound = errors.New("account not found")
+	ErrAccountExists   = errors.New("account code already exists")
+	ErrAccountInUse    = errors.New("account has transactions and cannot be deleted")
 )
 
 type Service struct {
@@ -30,10 +35,25 @@ func (s *Service) Create(
 	}
 
 	if err := s.repository.Create(ctx, account); err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("create account %q: %w", account.Code, ErrAccountExists)
+		}
 		return fmt.Errorf("create account: %w", err)
 	}
 
 	return nil
+}
+
+// isUniqueViolation reports Postgres SQLSTATE 23505 (unique_violation).
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// isForeignKeyViolation reports Postgres SQLSTATE 23503.
+func isForeignKeyViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23503"
 }
 
 func (s *Service) ValidateBelongsToBook(
@@ -113,6 +133,12 @@ func (s *Service) Update(
 	}
 
 	if err := s.repository.Update(ctx, account, bookID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: account %d in book %d", ErrAccountNotFound, account.ID, bookID)
+		}
+		if isUniqueViolation(err) {
+			return fmt.Errorf("update account %q: %w", account.Code, ErrAccountExists)
+		}
 		return fmt.Errorf("update account: %w", err)
 	}
 
@@ -129,6 +155,12 @@ func (s *Service) Delete(ctx context.Context, id int64, bookID int64) error {
 	}
 
 	if err := s.repository.Delete(ctx, id, bookID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: account %d in book %d", ErrAccountNotFound, id, bookID)
+		}
+		if isForeignKeyViolation(err) {
+			return fmt.Errorf("delete account %d: %w", id, ErrAccountInUse)
+		}
 		return fmt.Errorf("delete account: %w", err)
 	}
 
@@ -145,7 +177,10 @@ func (s *Service) GetByIDAndBookID(
 	}
 	acc, err := s.repository.GetByIDAndBookID(ctx, id, bookID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrAccountNotFound, err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: account %d in book %d", ErrAccountNotFound, id, bookID)
+		}
+		return nil, fmt.Errorf("get account: %w", err)
 	}
 	return acc, nil
 }

@@ -2,6 +2,7 @@ package journal
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math"
@@ -187,7 +188,7 @@ func (s *Service) Post(
 
 	entry, err := s.repository.GetByID(ctx, id, bookID)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrJournalNotFound, err)
+		return mapNotFound(id, bookID, err)
 	}
 
 	if entry.Status == StatusPosted {
@@ -244,7 +245,7 @@ func (s *Service) Void(
 
 	entry, err := s.repository.GetByID(ctx, id, bookID)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrJournalNotFound, err)
+		return mapNotFound(id, bookID, err)
 	}
 
 	switch entry.Status {
@@ -311,9 +312,18 @@ func (s *Service) GetByID(
 	}
 	entry, err := s.repository.GetByID(ctx, id, bookID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrJournalNotFound, err)
+		return nil, mapNotFound(id, bookID, err)
 	}
 	return entry, nil
+}
+
+// mapNotFound turns a missing row into a clean ErrJournalNotFound without
+// leaking driver text like "sql: no rows in result set" to CLI users.
+func mapNotFound(id, bookID int64, err error) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: entry %d in book %d", ErrJournalNotFound, id, bookID)
+	}
+	return fmt.Errorf("get journal entry: %w", err)
 }
 
 func (s *Service) ListByBookID(

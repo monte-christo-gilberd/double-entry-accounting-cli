@@ -155,7 +155,7 @@ func deleteAccount(ctx context.Context, bookID int64, accountService *account.Se
 	}
 
 	if err := accountService.Delete(ctx, int64(id), bookID); err != nil {
-		fmt.Println("Failed to delete Account (This account might still have transactions):", err)
+		fmt.Println("Failed to delete account:", err)
 		return
 	}
 	fmt.Println("Account deleted.")

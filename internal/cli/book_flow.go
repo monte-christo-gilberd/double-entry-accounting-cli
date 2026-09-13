@@ -133,11 +133,14 @@ func bookMenu(
 		fmt.Println("5. Add Account")
 		fmt.Println("6. Edit Account")
 		fmt.Println("7. Delete Account")
+		fmt.Println("8. Create Draft Transaction")
+		fmt.Println("9. Post Draft Transaction")
 		fmt.Println("0. Back to Main Menu")
 
 		choice, ok, err := prompt.ReadInt("Select menu: ")
 		if err != nil {
 			fmt.Println("failed to read input: ", err)
+			continue
 		}
 
 		if !ok {
@@ -159,6 +162,10 @@ func bookMenu(
 			editAccount(ctx, b.ID, accountService)
 		case 7:
 			deleteAccount(ctx, b.ID, accountService)
+		case 8:
+			createDraftTransaction(ctx, b.ID, accountService, journalService)
+		case 9:
+			postDraftTransaction(ctx, b.ID, journalService)
 		case 0:
 			return
 		default:

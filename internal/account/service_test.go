@@ -2,8 +2,12 @@ package account
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type mockRepository struct {
@@ -35,7 +39,7 @@ func (m *mockRepository) Create(ctx context.Context, account *Account) error {
 }
 
 func (m *mockRepository) GetByID(ctx context.Context, id int64) (*Account, error) {
-	return nil, nil
+	return nil, sql.ErrNoRows
 }
 
 func (m *mockRepository) GetByIDAndBookID(
@@ -46,6 +50,9 @@ func (m *mockRepository) GetByIDAndBookID(
 	m.getByIDAndBookIDCalled = true
 	if m.getByIDAndBookIDErr != nil {
 		return nil, m.getByIDAndBookIDErr
+	}
+	if m.getByIDAndBookIDResult == nil {
+		return nil, sql.ErrNoRows
 	}
 	return m.getByIDAndBookIDResult, nil
 }
@@ -344,6 +351,61 @@ func TestUpdateRejectsBookMismatch(t *testing.T) {
 	}
 	if repository.updateCalled {
 		t.Fatal("repository Update should not be called")
+	}
+}
+
+func TestCreateMapsDuplicateCode(t *testing.T) {
+	repository := &mockRepository{createErr: &pgconn.PgError{Code: "23505"}}
+	service := NewService(repository)
+
+	account := &Account{BookID: 1, Code: "1000", Name: "Cash", AccountType: "ASSET"}
+	err := service.Create(context.Background(), account)
+	if !errors.Is(err, ErrAccountExists) {
+		t.Fatalf("expected ErrAccountExists, got %v", err)
+	}
+}
+
+func TestUpdateMapsDuplicateCode(t *testing.T) {
+	repository := &mockRepository{updateErr: &pgconn.PgError{Code: "23505"}}
+	service := NewService(repository)
+
+	account := &Account{ID: 1, BookID: 1, Code: "1000", Name: "Cash", AccountType: "ASSET"}
+	err := service.Update(context.Background(), account, 1)
+	if !errors.Is(err, ErrAccountExists) {
+		t.Fatalf("expected ErrAccountExists, got %v", err)
+	}
+}
+
+func TestDeleteMapsInUse(t *testing.T) {
+	repository := &mockRepository{deleteErr: &pgconn.PgError{Code: "23503"}}
+	service := NewService(repository)
+
+	err := service.Delete(context.Background(), 1, 1)
+	if !errors.Is(err, ErrAccountInUse) {
+		t.Fatalf("expected ErrAccountInUse, got %v", err)
+	}
+}
+
+func TestGetByIDAndBookIDNotFoundIsClean(t *testing.T) {
+	repository := &mockRepository{getByIDAndBookIDErr: sql.ErrNoRows}
+	service := NewService(repository)
+
+	_, err := service.GetByIDAndBookID(context.Background(), 1, 1)
+	if !errors.Is(err, ErrAccountNotFound) {
+		t.Fatalf("expected ErrAccountNotFound, got %v", err)
+	}
+	if strings.Contains(err.Error(), "sql:") {
+		t.Fatalf("leaked driver text in user-facing error: %v", err)
+	}
+}
+
+func TestValidateBelongsToBookMissingIsNotFound(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository)
+
+	err := service.ValidateBelongsToBook(context.Background(), 1, 1)
+	if !errors.Is(err, ErrAccountNotFound) {
+		t.Fatalf("expected ErrAccountNotFound, got %v", err)
 	}
 }
 

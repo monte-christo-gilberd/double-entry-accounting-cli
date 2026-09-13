@@ -2,7 +2,9 @@ package journal
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -64,6 +66,9 @@ func (m *mockRepository) GetByID(
 	id int64,
 	bookID int64,
 ) (*JournalEntry, error) {
+	if m.entry == nil {
+		return nil, sql.ErrNoRows
+	}
 	return m.entry, nil
 }
 
@@ -456,6 +461,32 @@ func TestGetByIDRejectsInvalidIDs(t *testing.T) {
 	}
 	if _, err := service.GetByID(context.Background(), 1, 0); err == nil {
 		t.Fatal("expected validation error for invalid book ID")
+	}
+}
+
+func TestGetByIDNotFoundIsClean(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+
+	_, err := service.GetByID(context.Background(), 1, 1)
+	if !errors.Is(err, ErrJournalNotFound) {
+		t.Fatalf("expected ErrJournalNotFound, got %v", err)
+	}
+	if strings.Contains(err.Error(), "sql:") {
+		t.Fatalf("leaked driver text in user-facing error: %v", err)
+	}
+}
+
+func TestPostNotFoundIsClean(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+
+	err := service.Post(context.Background(), 1, 1)
+	if !errors.Is(err, ErrJournalNotFound) {
+		t.Fatalf("expected ErrJournalNotFound, got %v", err)
+	}
+	if strings.Contains(err.Error(), "sql:") {
+		t.Fatalf("leaked driver text in user-facing error: %v", err)
 	}
 }
 

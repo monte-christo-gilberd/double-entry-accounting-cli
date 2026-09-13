@@ -21,6 +21,7 @@ func transactionLogMenu(ctx context.Context, bookID int64, accountService *accou
 		choice, ok, err := prompt.ReadInt("Select Menu: ")
 		if err != nil {
 			fmt.Println("failed to get transaction log: ", err)
+			continue
 		}
 		if !ok {
 			continue
@@ -226,14 +227,37 @@ func doTransaction(
 		return
 	}
 
+	lines, ok := collectJournalLines()
+	if !ok {
+		fmt.Println("failed to to transaction: input aborted")
+		return
+	}
+
+	entry := &journal.JournalEntry{
+		BookID:      bookID,
+		EntryDate:   time.Now(),
+		Description: description,
+		Lines:       lines,
+	}
+
+	if err := journalService.Transact(ctx, entry); err != nil {
+		fmt.Println("Transaction failed:", err)
+		return
+	}
+	fmt.Printf("Transaction logged: #%d %q\n", entry.ID, entry.Description)
+}
+
+// collectJournalLines prompts for debit/credit lines until the user finishes
+// with Account ID 0. It reports ok=false only on a hard input read error;
+// anything else skips just that line.
+func collectJournalLines() ([]journal.JournalLine, bool) {
 	var lines []journal.JournalLine
 	for {
 
 		fmt.Printf("\nLine-%d (enter 0 as Account ID to finish)\n", len(lines)+1)
 		accID, ok, err := prompt.ReadInt("  Account ID: ")
 		if err != nil {
-			fmt.Println("failed to to transaction:", err)
-			return
+			return nil, false
 		}
 
 		if !ok {
@@ -249,8 +273,7 @@ func doTransaction(
 
 		side, err := prompt.ReadRequiredLine("  Debit or Credit? (d/c): ")
 		if err != nil {
-			fmt.Println("failed to to transaction:", err)
-			return
+			return nil, false
 		}
 
 		side = strings.ToLower(side)
@@ -261,8 +284,7 @@ func doTransaction(
 
 		amount, ok, err := prompt.ReadFloat("  Total: ")
 		if err != nil {
-			fmt.Println("failed to to transaction:", err)
-			return
+			return nil, false
 		}
 
 		if !ok || amount <= 0 {
@@ -278,6 +300,41 @@ func doTransaction(
 		}
 		lines = append(lines, line)
 	}
+	return lines, true
+}
+
+func createDraftTransaction(
+	ctx context.Context,
+	bookID int64,
+	accountService *account.Service,
+	journalService *journal.Service,
+) {
+	accounts, err := accountService.ListByBookID(ctx, bookID)
+	if err != nil {
+		fmt.Println("failed to create draft:", err)
+		return
+	}
+	if len(accounts) < 2 {
+		fmt.Println("Need a minimum of 2 account to do a transaction. Add more account first from menu 5.")
+		return
+	}
+
+	fmt.Println("\nAvailable Account:")
+	for _, a := range accounts {
+		fmt.Printf("  id=%d  %s - %s (%s)\n", a.ID, a.Code, a.Name, a.AccountType)
+	}
+
+	description, err := prompt.ReadRequiredLine("Draft Description: ")
+	if err != nil {
+		fmt.Println("failed to create draft:", err)
+		return
+	}
+
+	lines, ok := collectJournalLines()
+	if !ok {
+		fmt.Println("failed to create draft: input aborted")
+		return
+	}
 
 	entry := &journal.JournalEntry{
 		BookID:      bookID,
@@ -286,11 +343,66 @@ func doTransaction(
 		Lines:       lines,
 	}
 
-	if err := journalService.Transact(ctx, entry); err != nil {
-		fmt.Println("Transaction failed:", err)
+	if err := journalService.CreateDraft(ctx, entry); err != nil {
+		fmt.Println("Failed to create draft:", err)
 		return
 	}
-	fmt.Printf("Transaction logged: #%d %q\n", entry.ID, entry.Description)
+	fmt.Printf("Draft saved: #%d %q (post it from menu 9 to affect balances)\n", entry.ID, entry.Description)
+}
+
+// draftEntries returns DRAFT entries that may be posted.
+func draftEntries(entries []journal.JournalEntry) []journal.JournalEntry {
+	var drafts []journal.JournalEntry
+	for _, e := range entries {
+		if e.Status == journal.StatusDraft {
+			drafts = append(drafts, e)
+		}
+	}
+	return drafts
+}
+
+func postDraftTransaction(ctx context.Context, bookID int64, journalService *journal.Service) {
+	entries, err := journalService.ListByBookID(ctx, bookID)
+	if err != nil {
+		fmt.Println("Failed to get transaction logs:", err)
+		return
+	}
+
+	drafts := draftEntries(entries)
+	if len(drafts) == 0 {
+		fmt.Println("No draft transactions to post.")
+		return
+	}
+
+	fmt.Println("\nDraft transactions:")
+	for _, e := range drafts {
+		fmt.Printf("  #%d [%s] %s\n", e.ID, e.EntryDate.Format("02-01-2006"), e.Description)
+	}
+
+	id, ok, err := prompt.ReadInt("Enter draft id to post: ")
+	if err != nil {
+		fmt.Println("failed to post draft:", err)
+		return
+	}
+	if !ok {
+		return
+	}
+
+	input, err := prompt.ReadYesNo(fmt.Sprintf("Post draft #%d? Balances will be affected. (y/n): ", id))
+	if err != nil {
+		fmt.Println("failed to post draft:", err)
+		return
+	}
+	if !input {
+		fmt.Println("Cancelled.")
+		return
+	}
+
+	if err := journalService.Post(ctx, int64(id), bookID); err != nil {
+		fmt.Println("failed to post draft:", err)
+		return
+	}
+	fmt.Println("Draft posted.")
 }
 
 // cancelableEntries returns POSTED entries that may be voided: drafts have
