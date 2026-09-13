@@ -32,6 +32,9 @@ type mockRepository struct {
 	createAndVoidCalled bool
 	voidedOriginalID    int64
 	voidedReversal      *JournalEntry
+
+	detailedEntries []JournalEntry
+	detailedErr     error
 }
 
 func (m *mockRepository) CreateAndVoid(
@@ -69,6 +72,13 @@ func (m *mockRepository) ListByBookID(
 	bookID int64,
 ) ([]JournalEntry, error) {
 	return nil, nil
+}
+
+func (m *mockRepository) ListDetailedByBookID(
+	ctx context.Context,
+	bookID int64,
+) ([]JournalEntry, error) {
+	return m.detailedEntries, m.detailedErr
 }
 
 func (m *mockRepository) UpdateStatus(
@@ -434,6 +444,27 @@ func TestTransactNormalizesFifthDecimal(t *testing.T) {
 	}
 	if repository.createdEntry.Lines[0].Debit != 10.1235 {
 		t.Fatalf("expected debit normalized to 10.1235, got %v", repository.createdEntry.Lines[0].Debit)
+	}
+}
+
+func TestGetByIDRejectsInvalidIDs(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+
+	if _, err := service.GetByID(context.Background(), 0, 1); err == nil {
+		t.Fatal("expected validation error for invalid journal ID")
+	}
+	if _, err := service.GetByID(context.Background(), 1, 0); err == nil {
+		t.Fatal("expected validation error for invalid book ID")
+	}
+}
+
+func TestListDetailedByBookIDRejectsInvalidBookID(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+
+	if _, err := service.ListDetailedByBookID(context.Background(), 0); err == nil {
+		t.Fatal("expected validation error for invalid book ID")
 	}
 }
 

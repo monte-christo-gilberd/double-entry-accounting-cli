@@ -11,7 +11,7 @@ import (
 	"github.com/monte-christo-gilberd/double-entry-accounting-cli/internal/prompt"
 )
 
-func transactionLogMenu(ctx context.Context, bookID int64, journalService *journal.Service) {
+func transactionLogMenu(ctx context.Context, bookID int64, accountService *account.Service, journalService *journal.Service) {
 	for {
 		fmt.Println("\n-- Transaction Log --")
 		fmt.Println("1. View All Logs")
@@ -28,12 +28,12 @@ func transactionLogMenu(ctx context.Context, bookID int64, journalService *journ
 
 		switch choice {
 		case 1:
-			entries, err := journalService.ListByBookID(ctx, bookID)
+			entries, names, err := loadDetailedEntries(ctx, bookID, nil, accountService, journalService)
 			if err != nil {
 				fmt.Println("failed to get transaction log:", err)
 				continue
 			}
-			printJournalEntries(entries)
+			printJournalEntries(entries, names)
 
 		case 2:
 			n, err := prompt.ReadIntDefault("Last Log Total (empty = 1): ", 1)
@@ -41,13 +41,22 @@ func transactionLogMenu(ctx context.Context, bookID int64, journalService *journ
 				fmt.Println("failed to get transaction log: ", err)
 				continue
 			}
+			if n <= 0 {
+				fmt.Println("Last Log Total must be more than 0.")
+				continue
+			}
 
-			entries, err := journalService.ListRecentByBookID(ctx, bookID, n)
+			recent, err := journalService.ListRecentByBookID(ctx, bookID, n)
 			if err != nil {
 				fmt.Println("failed to get transaction log:", err)
 				continue
 			}
-			printJournalEntries(entries)
+			entries, names, err := loadDetailedEntries(ctx, bookID, recent, accountService, journalService)
+			if err != nil {
+				fmt.Println("failed to get transaction log:", err)
+				continue
+			}
+			printJournalEntries(entries, names)
 
 		case 0:
 			return
@@ -57,20 +66,82 @@ func transactionLogMenu(ctx context.Context, bookID int64, journalService *journ
 	}
 }
 
-func printJournalEntries(entries []journal.JournalEntry) {
+// loadDetailedEntries returns entries with their lines loaded plus an
+// accountID -> "CODE - Name" map for rendering. When headers is nil the
+// full detailed listing is used; otherwise each header is hydrated via
+// GetByID (the recent-N path, where N is small).
+func loadDetailedEntries(
+	ctx context.Context,
+	bookID int64,
+	headers []journal.JournalEntry,
+	accountService *account.Service,
+	journalService *journal.Service,
+) ([]journal.JournalEntry, map[int64]string, error) {
+	accounts, err := accountService.ListByBookID(ctx, bookID)
+	if err != nil {
+		return nil, nil, err
+	}
+	names := make(map[int64]string, len(accounts))
+	for _, a := range accounts {
+		names[a.ID] = a.Code + " - " + a.Name
+	}
+
+	if headers == nil {
+		entries, err := journalService.ListDetailedByBookID(ctx, bookID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return entries, names, nil
+	}
+
+	entries := make([]journal.JournalEntry, 0, len(headers))
+	for _, h := range headers {
+		full, err := journalService.GetByID(ctx, h.ID, bookID)
+		if err != nil {
+			return nil, nil, err
+		}
+		entries = append(entries, *full)
+	}
+	return entries, names, nil
+}
+
+func printJournalEntries(entries []journal.JournalEntry, names map[int64]string) {
 	if len(entries) == 0 {
 		fmt.Println("No transaction yet.")
 		return
 	}
 	for _, e := range entries {
-		fmt.Printf(
-			"#%d [%s] %s - %s\n",
-			e.ID,
-			e.EntryDate.Format("02-01-2006"),
-			e.Description,
-			e.Status,
-		)
+		fmt.Print(formatJournalEntry(e, names))
 	}
+}
+
+// formatJournalEntry renders one entry with its lines; pure for testability.
+func formatJournalEntry(e journal.JournalEntry, names map[int64]string) string {
+	var sb strings.Builder
+	fmt.Fprintf(
+		&sb,
+		"#%d [%s] %s - %s",
+		e.ID,
+		e.EntryDate.Format("02-01-2006"),
+		e.Description,
+		e.Status,
+	)
+	if e.ReversalOf != nil {
+		fmt.Fprintf(&sb, " (reversal of #%d)", *e.ReversalOf)
+	}
+	sb.WriteString("\n")
+	for _, l := range e.Lines {
+		name := names[l.AccountID]
+		if name == "" {
+			name = fmt.Sprintf("account #%d", l.AccountID)
+		}
+		if l.Debit > 0 {
+			fmt.Fprintf(&sb, "    %-24s Dr %12.2f\n", name, l.Debit)
+		} else {
+			fmt.Fprintf(&sb, "    %-24s Cr %12.2f\n", name, l.Credit)
+		}
+	}
+	return sb.String()
 }
 
 func viewAccountBalances(
@@ -99,10 +170,33 @@ func viewAccountBalances(
 		balanceByAccount[b.AccountID] = b.Balance
 	}
 
-	fmt.Println("\n-- Account's Balance --")
+	fmt.Println("\n-- Account's Balance (Dr = debit-side, Cr = credit-side) --")
 	for _, a := range accounts {
-		fmt.Printf("%-8s %-20s %-10s %.2f\n", a.Code, a.Name, a.AccountType, balanceByAccount[a.ID])
+		fmt.Printf("%-8s %-20s %-10s %s\n", a.Code, a.Name, a.AccountType, formatBalance(a.AccountType, balanceByAccount[a.ID]))
 	}
+}
+
+// formatBalance presents a raw debit-minus-credit balance in normal-balance
+// form: absolute value with a Dr/Cr suffix based on the account type.
+// ASSET and EXPENSE are normal-debit; LIABILITY, EQUITY and REVENUE are
+// normal-credit. A contra-side balance flips the suffix. Zero prints plain.
+func formatBalance(accountType string, balance float64) string {
+	amount, side := balance, "Dr"
+	if accountType != "ASSET" && accountType != "EXPENSE" {
+		amount, side = -balance, "Cr"
+	}
+	if amount < 0 {
+		amount = -amount
+		if side == "Dr" {
+			side = "Cr"
+		} else {
+			side = "Dr"
+		}
+	}
+	if amount == 0 {
+		return "0.00"
+	}
+	return fmt.Sprintf("%.2f %s", amount, side)
 }
 
 func doTransaction(
@@ -160,6 +254,10 @@ func doTransaction(
 		}
 
 		side = strings.ToLower(side)
+		if side != "d" && side != "c" {
+			fmt.Println("  Select 'd' or 'c'. Line skipped.")
+			continue
+		}
 
 		amount, ok, err := prompt.ReadFloat("  Total: ")
 		if err != nil {
@@ -173,14 +271,10 @@ func doTransaction(
 		}
 
 		line := journal.JournalLine{AccountID: int64(accID)}
-		switch side {
-		case "d":
+		if side == "d" {
 			line.Debit = amount
-		case "c":
+		} else {
 			line.Credit = amount
-		default:
-			fmt.Println("  Select 'd' or 'c'. Line skipped.")
-			continue
 		}
 		lines = append(lines, line)
 	}
@@ -221,7 +315,7 @@ func cancelTransaction(ctx context.Context, bookID int64, journalService *journa
 
 	postedEntries := cancelableEntries(entries)
 	if len(postedEntries) == 0 {
-		fmt.Println("No canceled transaction.")
+		fmt.Println("No cancelable transactions (only POSTED, non-reversal entries can be cancelled).")
 		return
 	}
 

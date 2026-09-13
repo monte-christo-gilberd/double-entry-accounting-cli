@@ -68,23 +68,31 @@ func ReadInt(text string) (int, bool, error) {
 }
 
 func ReadIntDefault(text string, def int) (int, error) {
+	for {
+		input, err := ReadLine(text)
+		if err != nil {
+			return 0, err
+		}
 
-	input, err := ReadLine(text)
-	if err != nil {
-		return 0, err
+		value, ok := parseIntDefault(input, def)
+		if ok {
+			return value, nil
+		}
+		fmt.Println("  invalid input, enter a number or leave empty for default:", def)
 	}
+}
 
+// parseIntDefault interprets one raw line: empty means the default, a valid
+// number is accepted, anything else reports ok=false so the caller reprompts.
+func parseIntDefault(input string, def int) (int, bool) {
 	if input == "" {
-		return def, nil
+		return def, true
 	}
-
 	convInput, err := strconv.Atoi(input)
 	if err != nil {
-		fmt.Println(" input not inputalid, use default:", def)
-		return def, nil
+		return 0, false
 	}
-
-	return convInput, nil
+	return convInput, true
 }
 
 func ReadFloat(text string) (float64, bool, error) {

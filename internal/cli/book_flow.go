@@ -146,7 +146,7 @@ func bookMenu(
 
 		switch choice {
 		case 1:
-			transactionLogMenu(ctx, b.ID, journalService)
+			transactionLogMenu(ctx, b.ID, accountService, journalService)
 		case 2:
 			viewAccountBalances(ctx, b.ID, accountService, journalService)
 		case 3:

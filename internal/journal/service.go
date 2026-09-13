@@ -298,11 +298,39 @@ func (s *Service) Transact(
 	return nil
 }
 
+func (s *Service) GetByID(
+	ctx context.Context,
+	id int64,
+	bookID int64,
+) (*JournalEntry, error) {
+	if id <= 0 {
+		return nil, fmt.Errorf("%w: invalid journal ID", ErrInvalidJournal)
+	}
+	if bookID <= 0 {
+		return nil, fmt.Errorf("%w: invalid book ID", ErrInvalidJournal)
+	}
+	entry, err := s.repository.GetByID(ctx, id, bookID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrJournalNotFound, err)
+	}
+	return entry, nil
+}
+
 func (s *Service) ListByBookID(
 	ctx context.Context,
 	bookID int64,
 ) ([]JournalEntry, error) {
 	return s.repository.ListByBookID(ctx, bookID)
+}
+
+func (s *Service) ListDetailedByBookID(
+	ctx context.Context,
+	bookID int64,
+) ([]JournalEntry, error) {
+	if bookID <= 0 {
+		return nil, fmt.Errorf("%w: invalid book ID", ErrInvalidJournal)
+	}
+	return s.repository.ListDetailedByBookID(ctx, bookID)
 }
 
 func (s *Service) ListRecentByBookID(

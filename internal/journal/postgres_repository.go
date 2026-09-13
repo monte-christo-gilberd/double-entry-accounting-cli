@@ -116,6 +116,22 @@ func (r *PostgresRepository) GetByID(
 		entry.ReversalOf = &reversalOf.Int64
 	}
 
+	lines, err := loadJournalLines(ctx, r.db, id)
+	if err != nil {
+		return nil, err
+	}
+	entry.Lines = lines
+
+	return &entry, nil
+}
+
+// lineQuerier is satisfied by *sql.DB and *sql.Tx so line loading can be
+// shared between single-entry and bulk listing queries.
+type lineQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func loadJournalLines(ctx context.Context, q lineQuerier, entryID int64) ([]JournalLine, error) {
 	const lineQuery = `
 		SELECT id, journal_entry_id, book_id, account_id, debit, credit
 		FROM journal_lines
@@ -123,12 +139,13 @@ func (r *PostgresRepository) GetByID(
 		ORDER BY id
 	`
 
-	rows, err := r.db.QueryContext(ctx, lineQuery, id)
+	rows, err := q.QueryContext(ctx, lineQuery, entryID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
+	var lines []JournalLine
 	for rows.Next() {
 		var line JournalLine
 		if err := rows.Scan(
@@ -141,13 +158,12 @@ func (r *PostgresRepository) GetByID(
 		); err != nil {
 			return nil, err
 		}
-		entry.Lines = append(entry.Lines, line)
+		lines = append(lines, line)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-
-	return &entry, nil
+	return lines, nil
 }
 
 func (r *PostgresRepository) CreateAndVoid(
@@ -267,6 +283,24 @@ func (r *PostgresRepository) ListByBookID(
 	return entries, nil
 }
 
+func (r *PostgresRepository) ListDetailedByBookID(
+	ctx context.Context,
+	bookID int64,
+) ([]JournalEntry, error) {
+	entries, err := r.ListByBookID(ctx, bookID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range entries {
+		lines, err := loadJournalLines(ctx, r.db, entries[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		entries[i].Lines = lines
+	}
+	return entries, nil
+}
+
 func (r *PostgresRepository) UpdateStatus(
 	ctx context.Context,
 	id int64,
@@ -318,6 +352,7 @@ func (r *PostgresRepository) ListRecentByBookID(
 			entry_date,
 			description,
 			status,
+			reversal_of,
 			created_at
 		FROM journal_entries
 		WHERE book_id = $1
@@ -334,15 +369,20 @@ func (r *PostgresRepository) ListRecentByBookID(
 	for rows.Next() {
 
 		var entry JournalEntry
+		var reversalOf sql.NullInt64
 		if err := rows.Scan(
 			&entry.ID,
 			&entry.BookID,
 			&entry.EntryDate,
 			&entry.Description,
 			&entry.Status,
+			&reversalOf,
 			&entry.CreatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if reversalOf.Valid {
+			entry.ReversalOf = &reversalOf.Int64
 		}
 
 		entries = append(entries, entry)
