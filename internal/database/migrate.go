@@ -85,8 +85,7 @@ func isDuplicateObjectError(err error) bool {
 		case "42P07", // duplicate_table
 			"42710", // duplicate_object (constraint, index, …)
 			"42701", // duplicate_column
-			"42723", // duplicate_function
-			"42P16": // invalid_table_definition (e.g. column already exists via ADD COLUMN)
+			"42723": // duplicate_function
 			return true
 		}
 	}

@@ -222,6 +222,7 @@ func (r *PostgresRepository) ListByBookID(
 			entry_date,
 			description,
 			status,
+			reversal_of,
 			created_at
 		FROM journal_entries
 		WHERE book_id = $1
@@ -242,6 +243,7 @@ func (r *PostgresRepository) ListByBookID(
 
 	for rows.Next() {
 		var entry JournalEntry
+		var reversalOf sql.NullInt64
 
 		if err := rows.Scan(
 			&entry.ID,
@@ -249,9 +251,13 @@ func (r *PostgresRepository) ListByBookID(
 			&entry.EntryDate,
 			&entry.Description,
 			&entry.Status,
+			&reversalOf,
 			&entry.CreatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if reversalOf.Valid {
+			entry.ReversalOf = &reversalOf.Int64
 		}
 		entries = append(entries, entry)
 	}

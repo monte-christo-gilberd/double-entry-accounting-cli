@@ -199,6 +199,19 @@ func doTransaction(
 	fmt.Printf("Transaction logged: #%d %q\n", entry.ID, entry.Description)
 }
 
+// cancelableEntries returns POSTED entries that may be voided: drafts have
+// no balance effect, voided entries are already dead, and reversal entries
+// must not be voided (voiding a void would silently re-post the original).
+func cancelableEntries(entries []journal.JournalEntry) []journal.JournalEntry {
+	var postedEntries []journal.JournalEntry
+	for _, e := range entries {
+		if e.Status == journal.StatusPosted && e.ReversalOf == nil {
+			postedEntries = append(postedEntries, e)
+		}
+	}
+	return postedEntries
+}
+
 func cancelTransaction(ctx context.Context, bookID int64, journalService *journal.Service) {
 	entries, err := journalService.ListByBookID(ctx, bookID)
 	if err != nil {
@@ -206,12 +219,7 @@ func cancelTransaction(ctx context.Context, bookID int64, journalService *journa
 		return
 	}
 
-	var postedEntries []journal.JournalEntry
-	for _, e := range entries {
-		if e.Status == journal.StatusPosted {
-			postedEntries = append(postedEntries, e)
-		}
-	}
+	postedEntries := cancelableEntries(entries)
 	if len(postedEntries) == 0 {
 		fmt.Println("No canceled transaction.")
 		return

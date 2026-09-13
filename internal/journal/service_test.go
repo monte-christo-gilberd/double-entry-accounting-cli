@@ -2,6 +2,7 @@ package journal
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -341,6 +342,98 @@ func TestVoidRejectsDraftEntry(t *testing.T) {
 	}
 	if repository.createAndVoidCalled {
 		t.Fatal("CreateAndVoid should not be called")
+	}
+}
+
+func TestPostRejectsForeignAccount(t *testing.T) {
+	entry := &JournalEntry{
+		ID:          1,
+		BookID:      1,
+		Description: "Cash sale",
+		EntryDate:   time.Now(),
+		Status:      StatusDraft,
+		Lines: []JournalLine{
+			{AccountID: 1, Debit: 10000},
+			{AccountID: 2, Credit: 10000},
+		},
+	}
+	repository := &mockRepository{entry: entry}
+	service := NewService(repository, &mockAccountValidator{err: errors.New("no rows")})
+
+	if err := service.Post(context.Background(), 1, 1); err == nil {
+		t.Fatal("expected validation error for foreign account")
+	}
+	if repository.updateStatusCalled {
+		t.Fatal("UpdateStatus should not be called")
+	}
+}
+
+func TestCreateDraftRejectsDuplicateAccount(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+
+	entry := &JournalEntry{
+		BookID:      1,
+		Description: "Same account both sides",
+		EntryDate:   time.Now(),
+		Lines: []JournalLine{
+			{AccountID: 1, Debit: 100},
+			{AccountID: 1, Credit: 100},
+		},
+	}
+
+	if err := service.CreateDraft(context.Background(), entry); err == nil {
+		t.Fatal("expected validation error for duplicate account")
+	}
+	if repository.createCalled {
+		t.Fatal("repository Create should not be called")
+	}
+}
+
+func TestTransactAcceptsFloatDust(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+
+	// 0.1 + 0.2 in binary float is 0.30000000000000004; integer units
+	// must still balance exactly against 0.3.
+	entry := &JournalEntry{
+		BookID:      1,
+		Description: "Float dust",
+		EntryDate:   time.Now(),
+		Lines: []JournalLine{
+			{AccountID: 1, Debit: 0.1},
+			{AccountID: 2, Debit: 0.2},
+			{AccountID: 3, Credit: 0.3},
+		},
+	}
+
+	if err := service.Transact(context.Background(), entry); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !repository.createCalled {
+		t.Fatal("expected Create to be called")
+	}
+}
+
+func TestTransactNormalizesFifthDecimal(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+
+	entry := &JournalEntry{
+		BookID:      1,
+		Description: "Sub-precision dust",
+		EntryDate:   time.Now(),
+		Lines: []JournalLine{
+			{AccountID: 1, Debit: 10.12345},
+			{AccountID: 2, Credit: 10.12345},
+		},
+	}
+
+	if err := service.Transact(context.Background(), entry); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if repository.createdEntry.Lines[0].Debit != 10.1235 {
+		t.Fatalf("expected debit normalized to 10.1235, got %v", repository.createdEntry.Lines[0].Debit)
 	}
 }
 

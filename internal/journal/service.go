@@ -35,6 +35,10 @@ func (s *Service) CreateDraft(
 	ctx context.Context,
 	entry *JournalEntry,
 ) error {
+	if entry == nil {
+		return fmt.Errorf("%w: entry is nil", ErrInvalidJournal)
+	}
+	normalizeMoney(entry)
 	if err := validateJournalEntry(entry); err != nil {
 		return err
 	}
@@ -61,6 +65,24 @@ func (s *Service) CreateDraft(
 	return nil
 }
 
+// moneyScale matches the NUMERIC(19,4) columns: amounts are exact in units
+// of 1/10000, so balance checks use integer math instead of float epsilon.
+const moneyScale = 10000
+
+func toMoneyUnits(v float64) int64 {
+	return int64(math.Round(v * moneyScale))
+}
+
+// normalizeMoney rounds every line to the database precision so the Go
+// balance check and what Postgres stores can never disagree on dust like
+// 0.30000000000000004 or a 5th decimal the column would silently round.
+func normalizeMoney(entry *JournalEntry) {
+	for i := range entry.Lines {
+		entry.Lines[i].Debit = float64(toMoneyUnits(entry.Lines[i].Debit)) / moneyScale
+		entry.Lines[i].Credit = float64(toMoneyUnits(entry.Lines[i].Credit)) / moneyScale
+	}
+}
+
 func validateJournalEntry(entry *JournalEntry) error {
 	if entry == nil {
 		return fmt.Errorf("%w: entry is nil", ErrInvalidJournal)
@@ -82,8 +104,9 @@ func validateJournalEntry(entry *JournalEntry) error {
 		return fmt.Errorf("%w: date is required", ErrInvalidJournal)
 	}
 
-	var totalDebit float64
-	var totalCredit float64
+	seen := make(map[int64]struct{}, len(entry.Lines))
+	var totalDebitUnits int64
+	var totalCreditUnits int64
 
 	for i, line := range entry.Lines {
 		if line.AccountID <= 0 {
@@ -93,6 +116,16 @@ func validateJournalEntry(entry *JournalEntry) error {
 				i+1,
 			)
 		}
+
+		if _, dup := seen[line.AccountID]; dup {
+			return fmt.Errorf(
+				"%w: line %d reuses account %d (one line per account)",
+				ErrInvalidJournal,
+				i+1,
+				line.AccountID,
+			)
+		}
+		seen[line.AccountID] = struct{}{}
 
 		if line.Debit < 0 || line.Credit < 0 {
 			return fmt.Errorf(
@@ -118,23 +151,23 @@ func validateJournalEntry(entry *JournalEntry) error {
 			)
 		}
 
-		totalDebit += line.Debit
-		totalCredit += line.Credit
+		totalDebitUnits += toMoneyUnits(line.Debit)
+		totalCreditUnits += toMoneyUnits(line.Credit)
 	}
 
-	if totalDebit <= 0 {
+	if totalDebitUnits <= 0 {
 		return fmt.Errorf(
 			"%w: total debit must be greater than zero",
 			ErrInvalidJournal,
 		)
 	}
 
-	if math.Abs(totalDebit-totalCredit) > 1e-9 {
+	if totalDebitUnits != totalCreditUnits {
 		return fmt.Errorf(
-			"%w: debit %.2f does not equal credit %.2f",
+			"%w: debit %.4f does not equal credit %.4f",
 			ErrInvalidJournal,
-			totalDebit,
-			totalCredit,
+			float64(totalDebitUnits)/moneyScale,
+			float64(totalCreditUnits)/moneyScale,
 		)
 	}
 	return nil
@@ -167,6 +200,20 @@ func (s *Service) Post(
 
 	if err := validateJournalEntry(entry); err != nil {
 		return err
+	}
+
+	for _, line := range entry.Lines {
+		if err := s.accounts.ValidateBelongsToBook(
+			ctx,
+			line.AccountID,
+			entry.BookID,
+		); err != nil {
+			return fmt.Errorf(
+				"validate account %d: %w",
+				line.AccountID,
+				err,
+			)
+		}
 	}
 
 	// Guarded on from=DRAFT so a concurrent void/post cannot slip through.
@@ -221,6 +268,10 @@ func (s *Service) Transact(
 	ctx context.Context,
 	entry *JournalEntry,
 ) error {
+	if entry == nil {
+		return fmt.Errorf("%w: entry is nil", ErrInvalidJournal)
+	}
+	normalizeMoney(entry)
 	if err := validateJournalEntry(entry); err != nil {
 		return err
 	}
