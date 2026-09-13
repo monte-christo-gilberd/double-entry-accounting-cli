@@ -101,7 +101,7 @@ func ReadFloat(text string) (float64, bool, error) {
 	convInput, err := strconv.ParseFloat(input, 64)
 	if err != nil {
 		fmt.Println("  input must be a number.")
-		return 0, false, err
+		return 0, false, nil
 	}
 
 	return convInput, true, nil

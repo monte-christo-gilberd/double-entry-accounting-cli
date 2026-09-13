@@ -243,7 +243,7 @@ func cancelTransaction(ctx context.Context, bookID int64, journalService *journa
 		return
 	}
 
-	if err := journalService.Void(ctx, int64(id)); err != nil {
+	if err := journalService.Void(ctx, int64(id), bookID); err != nil {
 		fmt.Println("failed to cancel transaction:", err)
 		return
 	}

@@ -3,11 +3,14 @@ package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func findMigrationsDir() string {
@@ -58,7 +61,7 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		}
 		if _, err := tx.ExecContext(ctx, string(sqlBytes)); err != nil {
 			_ = tx.Rollback()
-			if strings.Contains(err.Error(), "already exists") {
+			if isDuplicateObjectError(err) {
 				continue
 			}
 			return fmt.Errorf("migrate %s: %w", path, err)
@@ -69,4 +72,25 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		fmt.Println("applied:", entry.Name())
 	}
 	return nil
+}
+
+// isDuplicateObjectError reports whether err only means "object already
+// exists" so re-running migrations stays idempotent. It matches Postgres
+// SQLSTATE codes instead of a raw substring, so genuine failures (bad
+// syntax, FK violations, …) still abort the migration.
+func isDuplicateObjectError(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "42P07", // duplicate_table
+			"42710", // duplicate_object (constraint, index, …)
+			"42701", // duplicate_column
+			"42723", // duplicate_function
+			"42P16": // invalid_table_definition (e.g. column already exists via ADD COLUMN)
+			return true
+		}
+	}
+	// Fallback for drivers that do not surface PgError (or messages like
+	// `relation "books" already exists` without a code).
+	return strings.Contains(err.Error(), "already exists")
 }

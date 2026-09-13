@@ -143,10 +143,18 @@ func validateJournalEntry(entry *JournalEntry) error {
 func (s *Service) Post(
 	ctx context.Context,
 	id int64,
+	bookID int64,
 ) error {
-	entry, err := s.repository.GetByID(ctx, id)
+	if id <= 0 {
+		return fmt.Errorf("%w: invalid journal ID", ErrInvalidJournal)
+	}
+	if bookID <= 0 {
+		return fmt.Errorf("%w: invalid book ID", ErrInvalidJournal)
+	}
+
+	entry, err := s.repository.GetByID(ctx, id, bookID)
 	if err != nil {
-		return fmt.Errorf("get journal entry: %w", err)
+		return fmt.Errorf("%w: %v", ErrJournalNotFound, err)
 	}
 
 	if entry.Status == StatusPosted {
@@ -161,10 +169,13 @@ func (s *Service) Post(
 		return err
 	}
 
+	// Guarded on from=DRAFT so a concurrent void/post cannot slip through.
 	if err := s.repository.UpdateStatus(
 		ctx,
 		entry.ID,
+		StatusDraft,
 		StatusPosted,
+		bookID,
 	); err != nil {
 		return fmt.Errorf("post journal entry: %w", err)
 	}
@@ -175,10 +186,18 @@ func (s *Service) Post(
 func (s *Service) Void(
 	ctx context.Context,
 	id int64,
+	bookID int64,
 ) error {
-	entry, err := s.repository.GetByID(ctx, id)
+	if id <= 0 {
+		return fmt.Errorf("%w: invalid journal ID", ErrInvalidJournal)
+	}
+	if bookID <= 0 {
+		return fmt.Errorf("%w: invalid book ID", ErrInvalidJournal)
+	}
+
+	entry, err := s.repository.GetByID(ctx, id, bookID)
 	if err != nil {
-		return fmt.Errorf("get journal entry: %w", err)
+		return fmt.Errorf("%w: %v", ErrJournalNotFound, err)
 	}
 
 	switch entry.Status {
@@ -188,10 +207,10 @@ func (s *Service) Void(
 		return ErrJournalVoided
 	case StatusPosted:
 		reversal := entry.BuildReversal()
-		if err := s.repository.CreateAndVoid(ctx, entry.ID, reversal); err != nil {
+		if err := s.repository.CreateAndVoid(ctx, entry.ID, reversal, bookID); err != nil {
 			return fmt.Errorf("void journal entry: %w", err)
 		}
-	default: 
+	default:
 		return fmt.Errorf("%w: status %s", ErrInvalidJournal, entry.Status)
 	}
 

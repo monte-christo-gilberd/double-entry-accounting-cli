@@ -90,16 +90,17 @@ func (r *PostgresRepository) Create(
 func (r *PostgresRepository) GetByID(
 	ctx context.Context,
 	id int64,
+	bookID int64,
 ) (*JournalEntry, error) {
 	const entryQuery = `
 		SELECT id, book_id, entry_date, description, status, reversal_of, created_at
 		FROM journal_entries
-		WHERE id = $1
+		WHERE id = $1 AND book_id = $2
 	`
 
 	var entry JournalEntry
 	var reversalOf sql.NullInt64
-	err := r.db.QueryRowContext(ctx, entryQuery, id).Scan(
+	err := r.db.QueryRowContext(ctx, entryQuery, id, bookID).Scan(
 		&entry.ID,
 		&entry.BookID,
 		&entry.EntryDate,
@@ -153,6 +154,7 @@ func (r *PostgresRepository) CreateAndVoid(
 	ctx context.Context,
 	originalID int64,
 	reversal *JournalEntry,
+	bookID int64,
 ) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -188,8 +190,11 @@ func (r *PostgresRepository) CreateAndVoid(
 		line.BookID = reversal.BookID
 	}
 
-	const voidQuery = `UPDATE journal_entries SET status = $1 WHERE id = $2`
-	result, err := tx.ExecContext(ctx, voidQuery, StatusVoided, originalID)
+	// Atomic guard: only a POSTED entry in this book can be voided.
+	// Parentheses matter: AND binds tighter than OR, so the status
+	// predicate must be grouped with the id/book predicates.
+	const voidQuery = `UPDATE journal_entries SET status = $1 WHERE id = $2 AND book_id = $3 AND status = 'POSTED'`
+	result, err := tx.ExecContext(ctx, voidQuery, StatusVoided, originalID, bookID)
 	if err != nil {
 		return err
 	}
@@ -259,19 +264,25 @@ func (r *PostgresRepository) ListByBookID(
 func (r *PostgresRepository) UpdateStatus(
 	ctx context.Context,
 	id int64,
-	status Status,
+	from Status,
+	to Status,
+	bookID int64,
 ) error {
+	// Atomic guard on the expected previous status closes the
+	// check-then-act race between GetByID and the status update.
 	const query = `
 		UPDATE journal_entries
 		SET status = $1
-		WHERE id = $2
+		WHERE id = $2 AND book_id = $3 AND status = $4
 	`
 
 	result, err := r.db.ExecContext(
 		ctx,
 		query,
-		status,
+		to,
 		id,
+		bookID,
+		from,
 	)
 	if err != nil {
 		return err

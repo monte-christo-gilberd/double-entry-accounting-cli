@@ -94,28 +94,41 @@ func validateAccount(account *Account) error {
 func (s *Service) Update(
 	ctx context.Context,
 	account *Account,
+	bookID int64,
 ) error {
 	if account != nil && account.ID <= 0 {
 		return fmt.Errorf("%w: invalid account ID", ErrInvalidAccount)
+	}
+
+	if bookID <= 0 {
+		return fmt.Errorf("%w: invalid book ID", ErrInvalidAccount)
 	}
 
 	if err := validateAccount(account); err != nil {
 		return err
 	}
 
-	if err := s.repository.Update(ctx, account); err != nil {
+	if account.BookID != bookID {
+		return fmt.Errorf("%w: account belongs to book %d, not book %d", ErrInvalidAccount, account.BookID, bookID)
+	}
+
+	if err := s.repository.Update(ctx, account, bookID); err != nil {
 		return fmt.Errorf("update account: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Service) Delete(ctx context.Context, id int64) error {
+func (s *Service) Delete(ctx context.Context, id int64, bookID int64) error {
 	if id <= 0 {
 		return fmt.Errorf("%w: invalid account ID", ErrInvalidAccount)
 	}
 
-	if err := s.repository.Delete(ctx, id); err != nil {
+	if bookID <= 0 {
+		return fmt.Errorf("%w: invalid book ID", ErrInvalidAccount)
+	}
+
+	if err := s.repository.Delete(ctx, id, bookID); err != nil {
 		return fmt.Errorf("delete account: %w", err)
 	}
 

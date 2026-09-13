@@ -167,13 +167,14 @@ func (r *PostgresRepository) ListByBookID(
 func (r *PostgresRepository) Update(
 	ctx context.Context,
 	account *Account,
+	bookID int64,
 ) error {
 	const query = `
 		UPDATE accounts
 		SET code = $1,
 			name = $2,
 			account_type = $3
-		WHERE id = $4
+		WHERE id = $4 AND book_id = $5
 	`
 	result, err := r.db.ExecContext(
 		ctx,
@@ -182,6 +183,7 @@ func (r *PostgresRepository) Update(
 		account.Name,
 		account.AccountType,
 		account.ID,
+		bookID,
 	)
 	if err != nil {
 		return err
@@ -202,10 +204,11 @@ func (r *PostgresRepository) Update(
 func (r *PostgresRepository) Delete(
 	ctx context.Context,
 	id int64,
+	bookID int64,
 ) error {
-	const query = `DELETE FROM accounts WHERE id = $1`
+	const query = `DELETE FROM accounts WHERE id = $1 AND book_id = $2`
 
-	result, err := r.db.ExecContext(ctx, query, id)
+	result, err := r.db.ExecContext(ctx, query, id, bookID)
 	if err != nil {
 		return err
 	}

@@ -116,7 +116,7 @@ func editAccount(ctx context.Context, bookID int64, accountService *account.Serv
 		a.AccountType = readAccountType()
 	}
 
-	if err := accountService.Update(ctx, a); err != nil {
+	if err := accountService.Update(ctx, a, bookID); err != nil {
 		fmt.Println("Failed to account:", err)
 		return
 	}
@@ -154,7 +154,7 @@ func deleteAccount(ctx context.Context, bookID int64, accountService *account.Se
 		return
 	}
 
-	if err := accountService.Delete(ctx, int64(id)); err != nil {
+	if err := accountService.Delete(ctx, int64(id), bookID); err != nil {
 		fmt.Println("Failed to delete Account (This account might still have transactions):", err)
 		return
 	}

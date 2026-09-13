@@ -1,6 +1,7 @@
 package journal
 
 import (
+	"strconv"
 	"time"
 )
 
@@ -35,8 +36,8 @@ type JournalEntry struct {
 func (e *JournalEntry) BuildReversal() *JournalEntry {
 	reversal := &JournalEntry{
 		BookID:      e.BookID,
-		EntryDate:   e.EntryDate,
-		Description: "Void of entry #" + itoa(e.ID) + ": " + e.Description,
+		EntryDate:   time.Now(),
+		Description: "Void of entry #" + strconv.FormatInt(e.ID, 10) + ": " + e.Description,
 		Status:      StatusPosted,
 		ReversalOf:  &e.ID,
 	}
@@ -49,27 +50,4 @@ func (e *JournalEntry) BuildReversal() *JournalEntry {
 		})
 	}
 	return reversal
-}
-
-func itoa(id int64) string {
-	if id == 0 {
-		return "0"
-	}
-
-	neg := id < 0
-	if neg {
-		id = -id
-	}
-	var buf [20]byte
-	i := len(buf)
-	for id > 0 {
-		i--
-		buf[i] = byte('0' + id%10)
-		id /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
 }

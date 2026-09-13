@@ -37,6 +37,7 @@ func (m *mockRepository) CreateAndVoid(
 	ctx context.Context,
 	originalID int64,
 	reversal *JournalEntry,
+	bookID int64,
 ) error {
 	m.createAndVoidCalled = true
 	m.voidedOriginalID = originalID
@@ -57,6 +58,7 @@ func (m *mockRepository) Create(
 func (m *mockRepository) GetByID(
 	ctx context.Context,
 	id int64,
+	bookID int64,
 ) (*JournalEntry, error) {
 	return m.entry, nil
 }
@@ -71,11 +73,13 @@ func (m *mockRepository) ListByBookID(
 func (m *mockRepository) UpdateStatus(
 	ctx context.Context,
 	id int64,
-	status Status,
+	from Status,
+	to Status,
+	bookID int64,
 ) error {
 	m.updateStatusCalled = true
 	m.updatedID = id
-	m.updatedStatus = status
+	m.updatedStatus = to
 
 	return nil
 }
@@ -198,6 +202,7 @@ func TestPost(t *testing.T) {
 	err := service.Post(
 		context.Background(),
 		1,
+		1,
 	)
 
 	if err != nil {
@@ -251,6 +256,7 @@ func TestPostRejectsAlreadyPostedJournal(t *testing.T) {
 	err := service.Post(
 		context.Background(),
 		1,
+		1,
 	)
 
 	if err != ErrJournalPosted {
@@ -280,7 +286,7 @@ func TestVoidReversesAPostedEntry(t *testing.T) {
 	repository := &mockRepository{entry: entry}
 	service := NewService(repository, &mockAccountValidator{})
 
-	err := service.Void(context.Background(), 1)
+	err := service.Void(context.Background(), 1, 1)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -311,7 +317,7 @@ func TestVoidRejectsAlreadyVoidedEntry(t *testing.T) {
 	repository := &mockRepository{entry: entry}
 	service := NewService(repository, &mockAccountValidator{})
 
-	err := service.Void(context.Background(), 1)
+	err := service.Void(context.Background(), 1, 1)
 	if err != ErrJournalVoided {
 		t.Fatalf("expected ErrJournalVoided, got %v", err)
 	}
@@ -329,9 +335,33 @@ func TestVoidRejectsDraftEntry(t *testing.T) {
 	repository := &mockRepository{entry: entry}
 	service := NewService(repository, &mockAccountValidator{})
 
-	err := service.Void(context.Background(), 1)
+	err := service.Void(context.Background(), 1, 1)
 	if err != ErrCannotVoidDraft {
 		t.Fatalf("expected ErrCannotVoidDraft, got %v", err)
+	}
+	if repository.createAndVoidCalled {
+		t.Fatal("CreateAndVoid should not be called")
+	}
+}
+
+func TestPostRejectsInvalidBookID(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+
+	if err := service.Post(context.Background(), 1, 0); err == nil {
+		t.Fatal("expected validation error for invalid book ID")
+	}
+	if repository.updateStatusCalled {
+		t.Fatal("UpdateStatus should not be called")
+	}
+}
+
+func TestVoidRejectsInvalidBookID(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+
+	if err := service.Void(context.Background(), 1, 0); err == nil {
+		t.Fatal("expected validation error for invalid book ID")
 	}
 	if repository.createAndVoidCalled {
 		t.Fatal("CreateAndVoid should not be called")
