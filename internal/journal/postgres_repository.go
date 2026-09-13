@@ -301,6 +301,36 @@ func (r *PostgresRepository) ListDetailedByBookID(
 	return entries, nil
 }
 
+func (r *PostgresRepository) DeleteDraft(
+	ctx context.Context,
+	id int64,
+	bookID int64,
+) error {
+	// Guarded to DRAFT: posted/voided history is immutable and can only be
+	// offset by a reversal, never removed. Lines cascade per the
+	// journal_lines FK (ON DELETE CASCADE).
+	const query = `
+		DELETE FROM journal_entries
+		WHERE id = $1 AND book_id = $2 AND status = 'DRAFT'
+	`
+
+	result, err := r.db.ExecContext(ctx, query, id, bookID)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
 func (r *PostgresRepository) UpdateStatus(
 	ctx context.Context,
 	id int64,

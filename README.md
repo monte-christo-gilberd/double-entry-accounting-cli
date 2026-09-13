@@ -9,7 +9,7 @@ A standalone CLI application for offline double-entry accounting, built with Go 
 - Double-Entry Transactions — Perform validated transactions (≥2 lines, debit = credit, one line per account, account belongs to book, amounts rounded to 4 decimals)
 - Transaction Log — View all logs or last N logs with per-line debit/credit detail, account names, and reversal markers, ordered by entry date / created time
 - Account Balances — View totals per account from `POSTED` journals in normal-balance form (`150.75 Dr` / `5000.00 Cr`)
-- Posting & Voiding — Draft → Posted flow; voiding flips the original to `VOIDED` and records a `VOIDED` reversal (audit-only), so balances are restored exactly once
+- Posting & Voiding — Draft → Posted flow (unwanted drafts can be deleted); voiding flips the original to `VOIDED` and records a `VOIDED` reversal (audit-only), so balances are restored exactly once
 - Offline CLI — Interactive prompt menus with validation, reprompts on bad input, and clean exit on closed stdin (EOF)
 
 ## Tech Stack
@@ -134,13 +134,14 @@ double-entry-accounting-cli
 ```
 1. View Transaction Log      # all logs or last N, with per-line Dr/Cr detail
 2. View Account Balances      # normal-balance Dr/Cr per account
-3. Perform Transaction        # posts immediately (0 as Account ID finishes, d/c per line)
+3. Perform Transaction        # posts immediately (account codes per line, 0 finishes, q cancels)
 4. Cancel Transaction         # voids a POSTED entry (reversals can't be voided)
 5. Add Account
 6. Edit Account               # empty input keeps the current value
 7. Delete Account             # blocked while the account has transactions
-8. Create Draft Transaction   # saved as DRAFT, no balance effect
+8. Create Draft Transaction   # saved as DRAFT, no balance effect (same cancel escapes)
 9. Post Draft Transaction     # DRAFT → POSTED, balances move
+10. Delete Draft Transaction  # permanently removes an unposted draft
 0. Back to Main Menu
 ```
 

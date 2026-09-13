@@ -33,7 +33,7 @@ func addAccount(ctx context.Context, bookID int64, accountService *account.Servi
 		fmt.Println("Failed to create account:", err)
 		return
 	}
-	fmt.Printf("Account created: id=%d %s - %s\n", a.ID, a.Code, a.Name)
+	fmt.Printf("Account created: %s - %s\n", a.Code, a.Name)
 }
 
 func readAccountType() string {
@@ -66,7 +66,7 @@ func listAccountsNumbered(ctx context.Context, bookID int64, accountService *acc
 		return nil
 	}
 	for _, a := range accounts {
-		fmt.Printf("  id=%d  %s - %s (%s)\n", a.ID, a.Code, a.Name, a.AccountType)
+		fmt.Printf("  %s - %s (%s)\n", a.Code, a.Name, a.AccountType)
 	}
 	return accounts
 }
@@ -76,17 +76,17 @@ func editAccount(ctx context.Context, bookID int64, accountService *account.Serv
 		return
 	}
 
-	id, ok, err := prompt.ReadInt("Account ID that you want to edit: ")
+	code, err := prompt.ReadLine("Account code that you want to edit (empty to cancel): ")
 	if err != nil {
 		fmt.Println("Failed to edit account:", err)
 		return
 	}
-
-	if !ok {
+	if code == "" {
+		fmt.Println("Cancelled.")
 		return
 	}
 
-	a, err := accountService.GetByIDAndBookID(ctx, int64(id), bookID)
+	a, err := accountService.GetByCodeAndBookID(ctx, code, bookID)
 	if err != nil {
 		fmt.Println("Account not found in this book:", err)
 		return
@@ -128,22 +128,23 @@ func deleteAccount(ctx context.Context, bookID int64, accountService *account.Se
 		return
 	}
 
-	id, ok, err := prompt.ReadInt("Account ID that you want to delete: ")
+	code, err := prompt.ReadLine("Account code that you want to delete (empty to cancel): ")
 	if err != nil {
 		fmt.Println("Failed to delete account:", err)
 		return
 	}
-
-	if !ok {
+	if code == "" {
+		fmt.Println("Cancelled.")
 		return
 	}
 
-	if _, err := accountService.GetByIDAndBookID(ctx, int64(id), bookID); err != nil {
+	del, err := accountService.GetByCodeAndBookID(ctx, code, bookID)
+	if err != nil {
 		fmt.Println("Account not found in this book:", err)
 		return
 	}
 
-	input, err := prompt.ReadYesNo("Are you sure to delete this account? (y/n): ")
+	input, err := prompt.ReadYesNo(fmt.Sprintf("Are you sure to delete %q? (y/n): ", del.Code+" - "+del.Name))
 	if err != nil {
 		fmt.Println("Failed to delete account:", err)
 		return
@@ -154,7 +155,7 @@ func deleteAccount(ctx context.Context, bookID int64, accountService *account.Se
 		return
 	}
 
-	if err := accountService.Delete(ctx, int64(id), bookID); err != nil {
+	if err := accountService.Delete(ctx, del.ID, bookID); err != nil {
 		fmt.Println("Failed to delete account:", err)
 		return
 	}

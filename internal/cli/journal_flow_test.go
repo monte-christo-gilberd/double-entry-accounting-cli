@@ -23,6 +23,38 @@ func TestCancelableEntriesExcludesReversals(t *testing.T) {
 	}
 }
 
+func TestParseAccountCodeInput(t *testing.T) {
+	cases := []struct {
+		name          string
+		input         string
+		wantCode      string
+		wantFinish    bool
+		wantCancelled bool
+		wantValid     bool
+	}{
+		{name: "q cancels", input: "q", wantCancelled: true},
+		{name: "Q cancels case-insensitive", input: "Q", wantCancelled: true},
+		{name: "cancel word cancels", input: "cancel", wantCancelled: true},
+		{name: "zero finishes", input: "0", wantFinish: true, wantValid: true},
+		{name: "empty reprompts", input: ""},
+		{name: "spaces reprompt", input: "   "},
+		{name: "code accepted", input: "1000", wantCode: "1000", wantValid: true},
+		{name: "code trimmed", input: "  4000  ", wantCode: "4000", wantValid: true},
+		{name: "alpha code accepted", input: "KAS", wantCode: "KAS", wantValid: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, finish, cancelled, valid := parseAccountCodeInput(tc.input)
+			if code != tc.wantCode || finish != tc.wantFinish ||
+				cancelled != tc.wantCancelled || valid != tc.wantValid {
+				t.Fatalf("parseAccountCodeInput(%q) = (%q, %v, %v, %v), want (%q, %v, %v, %v)",
+					tc.input, code, finish, cancelled, valid,
+					tc.wantCode, tc.wantFinish, tc.wantCancelled, tc.wantValid)
+			}
+		})
+	}
+}
+
 func TestDraftEntries(t *testing.T) {
 	entries := []journal.JournalEntry{
 		{ID: 1, Status: journal.StatusDraft},

@@ -19,6 +19,10 @@ type mockRepository struct {
 	getByIDAndBookIDResult *Account
 	getByIDAndBookIDErr    error
 
+	getByCodeAndBookIDCalled bool
+	getByCodeAndBookIDResult *Account
+	getByCodeAndBookIDErr    error
+
 	updateCalled bool
 	updatedAcct  *Account
 	updateErr    error
@@ -55,6 +59,21 @@ func (m *mockRepository) GetByIDAndBookID(
 		return nil, sql.ErrNoRows
 	}
 	return m.getByIDAndBookIDResult, nil
+}
+
+func (m *mockRepository) GetByCodeAndBookID(
+	ctx context.Context,
+	code string,
+	bookID int64,
+) (*Account, error) {
+	m.getByCodeAndBookIDCalled = true
+	if m.getByCodeAndBookIDErr != nil {
+		return nil, m.getByCodeAndBookIDErr
+	}
+	if m.getByCodeAndBookIDResult == nil {
+		return nil, sql.ErrNoRows
+	}
+	return m.getByCodeAndBookIDResult, nil
 }
 
 func (m *mockRepository) ListByBookID(ctx context.Context, bookID int64) ([]Account, error) {
@@ -406,6 +425,64 @@ func TestValidateBelongsToBookMissingIsNotFound(t *testing.T) {
 	err := service.ValidateBelongsToBook(context.Background(), 1, 1)
 	if !errors.Is(err, ErrAccountNotFound) {
 		t.Fatalf("expected ErrAccountNotFound, got %v", err)
+	}
+}
+
+func TestGetByCodeAndBookID(t *testing.T) {
+	repository := &mockRepository{
+		getByCodeAndBookIDResult: &Account{ID: 7, BookID: 1, Code: "1000", Name: "Cash", AccountType: "ASSET"},
+	}
+	service := NewService(repository)
+
+	acc, err := service.GetByCodeAndBookID(context.Background(), "1000", 1)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if acc.ID != 7 || !repository.getByCodeAndBookIDCalled {
+		t.Fatalf("expected account 7 via repository, got %+v", acc)
+	}
+}
+
+func TestGetByCodeAndBookIDRejectsInvalid(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository)
+
+	if _, err := service.GetByCodeAndBookID(context.Background(), "", 1); !errors.Is(err, ErrInvalidAccount) {
+		t.Fatalf("expected ErrInvalidAccount, got %v", err)
+	}
+	if _, err := service.GetByCodeAndBookID(context.Background(), "1000", 0); !errors.Is(err, ErrInvalidAccount) {
+		t.Fatalf("expected ErrInvalidAccount, got %v", err)
+	}
+	if repository.getByCodeAndBookIDCalled {
+		t.Fatal("repository should not be queried")
+	}
+}
+
+func TestGetByCodeAndBookIDNotFoundIsClean(t *testing.T) {
+	repository := &mockRepository{getByCodeAndBookIDErr: sql.ErrNoRows}
+	service := NewService(repository)
+
+	_, err := service.GetByCodeAndBookID(context.Background(), "9999", 1)
+	if !errors.Is(err, ErrAccountNotFound) {
+		t.Fatalf("expected ErrAccountNotFound, got %v", err)
+	}
+	if strings.Contains(err.Error(), "sql:") {
+		t.Fatalf("leaked driver text in user-facing error: %v", err)
+	}
+}
+
+func TestCreateRejectsReservedCodes(t *testing.T) {
+	for _, code := range []string{"0", "q", "Q", "cancel", "Cancel"} {
+		repository := &mockRepository{}
+		service := NewService(repository)
+
+		account := &Account{BookID: 1, Code: code, Name: "X", AccountType: "ASSET"}
+		if err := service.Create(context.Background(), account); !errors.Is(err, ErrInvalidAccount) {
+			t.Fatalf("code %q: expected ErrInvalidAccount, got %v", code, err)
+		}
+		if repository.createCalled {
+			t.Fatalf("code %q: repository Create should not be called", code)
+		}
 	}
 }
 

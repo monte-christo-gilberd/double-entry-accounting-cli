@@ -30,16 +30,16 @@ func main() {
 
 	defer db.Close()
 
-	// migrate subcommand: go run ./cmd/accounting migrate
+	// migrate subcommand: go run ./cmd/accounting migrate (silent on
+	// success; failures print and exit non-zero)
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {
 		if err := database.Migrate(ctx, db); err != nil {
 			fmt.Println("Migration failed:", err)
 			os.Exit(1)
 		}
-		fmt.Println("Migrations completed")
 		return
 	}
-	// auto-migrate on normal run
+	// auto-migrate on normal run (quiet: straight to the interface)
 	if err := database.Migrate(ctx, db); err != nil {
 		fmt.Println("Auto-migrate failed:", err)
 		os.Exit(1)

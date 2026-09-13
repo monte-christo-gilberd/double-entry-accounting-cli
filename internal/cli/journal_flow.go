@@ -222,18 +222,26 @@ func doTransaction(
 
 	fmt.Println("\nAvailable Account:")
 	for _, a := range accounts {
-		fmt.Printf("  id=%d  %s - %s (%s)\n", a.ID, a.Code, a.Name, a.AccountType)
+		fmt.Printf("  %s - %s (%s)\n", a.Code, a.Name, a.AccountType)
 	}
 
-	description, err := prompt.ReadRequiredLine("Transaction Description: ")
+	description, err := prompt.ReadLine("Transaction Description (empty to cancel): ")
 	if err != nil {
 		fmt.Println("failed to to transaction:", err)
 		return
 	}
+	if description == "" {
+		fmt.Println("Transaction cancelled.")
+		return
+	}
 
-	lines, ok := collectJournalLines()
-	if !ok {
-		fmt.Println("failed to to transaction: input aborted")
+	lines, cancelled, err := collectJournalLines(ctx, bookID, accountService)
+	if err != nil {
+		fmt.Println("failed to to transaction:", err)
+		return
+	}
+	if cancelled {
+		fmt.Println("Transaction cancelled.")
 		return
 	}
 
@@ -251,23 +259,31 @@ func doTransaction(
 	fmt.Printf("Transaction logged: #%d %q\n", entry.ID, entry.Description)
 }
 
-// collectJournalLines prompts for debit/credit lines until the user finishes
-// with Account ID 0. It reports ok=false only on a hard input read error;
+// collectJournalLines prompts for debit/credit lines identified by account
+// code until the user finishes with 0 or cancels with q. It reports
+// cancelled=true on user abort and err only on a hard input read error;
 // anything else skips just that line.
-func collectJournalLines() ([]journal.JournalLine, bool) {
-	var lines []journal.JournalLine
+func collectJournalLines(
+	ctx context.Context,
+	bookID int64,
+	accountService *account.Service,
+) (lines []journal.JournalLine, cancelled bool, err error) {
 	for {
 
-		fmt.Printf("\nLine-%d (enter 0 as Account ID to finish)\n", len(lines)+1)
-		accID, ok, err := prompt.ReadInt("  Account ID: ")
+		fmt.Printf("\nLine-%d (0 to finish, q to cancel)\n", len(lines)+1)
+		raw, err := prompt.ReadLine("  Account code: ")
 		if err != nil {
-			return nil, false
+			return nil, false, err
 		}
 
-		if !ok {
+		code, finish, cancel, valid := parseAccountCodeInput(raw)
+		if cancel {
+			return nil, true, nil
+		}
+		if !valid {
 			continue
 		}
-		if accID == 0 {
+		if finish {
 			if len(lines) < 2 {
 				fmt.Println("  Need a minimum of 2 lines before finishing.")
 				continue
@@ -275,9 +291,15 @@ func collectJournalLines() ([]journal.JournalLine, bool) {
 			break
 		}
 
+		acc, err := accountService.GetByCodeAndBookID(ctx, code, bookID)
+		if err != nil {
+			fmt.Printf("  Unknown account code %q in this book. Line skipped.\n", code)
+			continue
+		}
+
 		side, err := prompt.ReadRequiredLine("  Debit or Credit? (d/c): ")
 		if err != nil {
-			return nil, false
+			return nil, false, err
 		}
 
 		side = strings.ToLower(side)
@@ -288,7 +310,7 @@ func collectJournalLines() ([]journal.JournalLine, bool) {
 
 		amount, ok, err := prompt.ReadFloat("  Total: ")
 		if err != nil {
-			return nil, false
+			return nil, false, err
 		}
 
 		if !ok || amount <= 0 {
@@ -296,7 +318,7 @@ func collectJournalLines() ([]journal.JournalLine, bool) {
 			continue
 		}
 
-		line := journal.JournalLine{AccountID: int64(accID)}
+		line := journal.JournalLine{AccountID: acc.ID}
 		if side == "d" {
 			line.Debit = amount
 		} else {
@@ -304,7 +326,23 @@ func collectJournalLines() ([]journal.JournalLine, bool) {
 		}
 		lines = append(lines, line)
 	}
-	return lines, true
+	return lines, false, nil
+}
+
+// parseAccountCodeInput interprets one raw account-code line: q cancels, 0
+// finishes, empty input is invalid (caller reprompts), anything else is an
+// account code to resolve.
+func parseAccountCodeInput(input string) (code string, finish bool, cancelled bool, valid bool) {
+	switch s := strings.TrimSpace(input); strings.ToLower(s) {
+	case "q", "cancel":
+		return "", false, true, false
+	case "0":
+		return "", true, false, true
+	case "":
+		return "", false, false, false
+	default:
+		return s, false, false, true
+	}
 }
 
 func createDraftTransaction(
@@ -325,18 +363,26 @@ func createDraftTransaction(
 
 	fmt.Println("\nAvailable Account:")
 	for _, a := range accounts {
-		fmt.Printf("  id=%d  %s - %s (%s)\n", a.ID, a.Code, a.Name, a.AccountType)
+		fmt.Printf("  %s - %s (%s)\n", a.Code, a.Name, a.AccountType)
 	}
 
-	description, err := prompt.ReadRequiredLine("Draft Description: ")
+	description, err := prompt.ReadLine("Draft Description (empty to cancel): ")
 	if err != nil {
 		fmt.Println("failed to create draft:", err)
 		return
 	}
+	if description == "" {
+		fmt.Println("Draft cancelled.")
+		return
+	}
 
-	lines, ok := collectJournalLines()
-	if !ok {
-		fmt.Println("failed to create draft: input aborted")
+	lines, cancelled, err := collectJournalLines(ctx, bookID, accountService)
+	if err != nil {
+		fmt.Println("failed to create draft:", err)
+		return
+	}
+	if cancelled {
+		fmt.Println("Draft cancelled.")
 		return
 	}
 
@@ -407,6 +453,50 @@ func postDraftTransaction(ctx context.Context, bookID int64, journalService *jou
 		return
 	}
 	fmt.Println("Draft posted.")
+}
+
+func deleteDraftTransaction(ctx context.Context, bookID int64, journalService *journal.Service) {
+	entries, err := journalService.ListByBookID(ctx, bookID)
+	if err != nil {
+		fmt.Println("Failed to get transaction logs:", err)
+		return
+	}
+
+	drafts := draftEntries(entries)
+	if len(drafts) == 0 {
+		fmt.Println("No draft transactions to delete.")
+		return
+	}
+
+	fmt.Println("\nDraft transactions:")
+	for _, e := range drafts {
+		fmt.Printf("  #%d [%s] %s\n", e.ID, e.EntryDate.Format("02-01-2006"), e.Description)
+	}
+
+	id, ok, err := prompt.ReadInt("Enter draft id to delete: ")
+	if err != nil {
+		fmt.Println("failed to delete draft:", err)
+		return
+	}
+	if !ok {
+		return
+	}
+
+	input, err := prompt.ReadYesNo(fmt.Sprintf("Delete draft #%d permanently? (y/n): ", id))
+	if err != nil {
+		fmt.Println("failed to delete draft:", err)
+		return
+	}
+	if !input {
+		fmt.Println("Cancelled.")
+		return
+	}
+
+	if err := journalService.DeleteDraft(ctx, int64(id), bookID); err != nil {
+		fmt.Println("failed to delete draft:", err)
+		return
+	}
+	fmt.Println("Draft deleted.")
 }
 
 // cancelableEntries returns POSTED entries that may be voided: drafts have

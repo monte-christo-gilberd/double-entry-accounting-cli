@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -94,6 +95,13 @@ func validateAccount(account *Account) error {
 		return fmt.Errorf("%w: code is required", ErrInvalidAccount)
 	}
 
+	// Codes double as the CLI selection keys (0 finishes, q cancels), so
+	// these values can never address an account and are rejected outright.
+	switch strings.ToLower(account.Code) {
+	case "0", "q", "cancel":
+		return fmt.Errorf("%w: code %q is reserved", ErrInvalidAccount, account.Code)
+	}
+
 	if account.Name == "" {
 		return fmt.Errorf("%w: name is required", ErrInvalidAccount)
 	}
@@ -179,6 +187,24 @@ func (s *Service) GetByIDAndBookID(
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("%w: account %d in book %d", ErrAccountNotFound, id, bookID)
+		}
+		return nil, fmt.Errorf("get account: %w", err)
+	}
+	return acc, nil
+}
+
+func (s *Service) GetByCodeAndBookID(
+	ctx context.Context,
+	code string,
+	bookID int64,
+) (*Account, error) {
+	if code == "" || bookID <= 0 {
+		return nil, fmt.Errorf("%w: invalid code or book ID", ErrInvalidAccount)
+	}
+	acc, err := s.repository.GetByCodeAndBookID(ctx, code, bookID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: account %q in book %d", ErrAccountNotFound, code, bookID)
 		}
 		return nil, fmt.Errorf("get account: %w", err)
 	}
