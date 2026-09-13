@@ -136,6 +136,7 @@ func bookMenu(
 		fmt.Println("7. Delete Account")
 		fmt.Println("8. Create Draft Transaction")
 		fmt.Println("9. Post Draft Transaction")
+		fmt.Println("10. Delete Draft Transaction")
 		fmt.Println("0. Back to Main Menu")
 
 		choice, ok, err := prompt.ReadInt("Select menu: ")
@@ -170,6 +171,8 @@ func bookMenu(
 			createDraftTransaction(ctx, b.ID, accountService, journalService)
 		case 9:
 			postDraftTransaction(ctx, b.ID, journalService)
+		case 10:
+			deleteDraftTransaction(ctx, b.ID, journalService)
 		case 0:
 			return
 		default:

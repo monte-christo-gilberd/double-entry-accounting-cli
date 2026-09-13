@@ -32,6 +32,9 @@ func findMigrationsDir() string {
 	return "migrations"
 }
 
+// Migrate applies pending *.sql files. It is silent on success (errors
+// still propagate to the caller) so opening the app goes straight from
+// the DB check to the program interface.
 func Migrate(ctx context.Context, db *sql.DB) error {
 	migrationsDir := findMigrationsDir()
 	entries, err := os.ReadDir(migrationsDir)
@@ -69,7 +72,6 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("commit %s: %w", path, err)
 		}
-		fmt.Println("applied:", entry.Name())
 	}
 	return nil
 }

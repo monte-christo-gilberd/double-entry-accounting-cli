@@ -37,6 +37,10 @@ type mockRepository struct {
 
 	detailedEntries []JournalEntry
 	detailedErr     error
+
+	deleteDraftCalled bool
+	deletedDraftID    int64
+	deleteDraftErr    error
 }
 
 func (m *mockRepository) CreateAndVoid(
@@ -77,6 +81,16 @@ func (m *mockRepository) ListByBookID(
 	bookID int64,
 ) ([]JournalEntry, error) {
 	return nil, nil
+}
+
+func (m *mockRepository) DeleteDraft(
+	ctx context.Context,
+	id int64,
+	bookID int64,
+) error {
+	m.deleteDraftCalled = true
+	m.deletedDraftID = id
+	return m.deleteDraftErr
 }
 
 func (m *mockRepository) ListDetailedByBookID(
@@ -533,6 +547,73 @@ func TestPostNotFoundIsClean(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "sql:") {
 		t.Fatalf("leaked driver text in user-facing error: %v", err)
+	}
+}
+
+func TestDeleteDraft(t *testing.T) {
+	entry := &JournalEntry{ID: 1, BookID: 1, Status: StatusDraft}
+	repository := &mockRepository{entry: entry}
+	service := NewService(repository, &mockAccountValidator{})
+
+	if err := service.DeleteDraft(context.Background(), 1, 1); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !repository.deleteDraftCalled || repository.deletedDraftID != 1 {
+		t.Fatal("expected DeleteDraft to be called with ID 1")
+	}
+}
+
+func TestDeleteDraftRejectsPosted(t *testing.T) {
+	entry := &JournalEntry{ID: 1, BookID: 1, Status: StatusPosted}
+	repository := &mockRepository{entry: entry}
+	service := NewService(repository, &mockAccountValidator{})
+
+	if err := service.DeleteDraft(context.Background(), 1, 1); err != ErrCannotDeletePosted {
+		t.Fatalf("expected ErrCannotDeletePosted, got %v", err)
+	}
+	if repository.deleteDraftCalled {
+		t.Fatal("repository DeleteDraft should not be called")
+	}
+}
+
+func TestDeleteDraftRejectsVoided(t *testing.T) {
+	entry := &JournalEntry{ID: 1, BookID: 1, Status: StatusVoided}
+	repository := &mockRepository{entry: entry}
+	service := NewService(repository, &mockAccountValidator{})
+
+	if err := service.DeleteDraft(context.Background(), 1, 1); err != ErrCannotDeletePosted {
+		t.Fatalf("expected ErrCannotDeletePosted, got %v", err)
+	}
+	if repository.deleteDraftCalled {
+		t.Fatal("repository DeleteDraft should not be called")
+	}
+}
+
+func TestDeleteDraftNotFoundIsClean(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+
+	err := service.DeleteDraft(context.Background(), 1, 1)
+	if !errors.Is(err, ErrJournalNotFound) {
+		t.Fatalf("expected ErrJournalNotFound, got %v", err)
+	}
+	if strings.Contains(err.Error(), "sql:") {
+		t.Fatalf("leaked driver text in user-facing error: %v", err)
+	}
+}
+
+func TestDeleteDraftRejectsInvalidIDs(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+
+	if err := service.DeleteDraft(context.Background(), 0, 1); err == nil {
+		t.Fatal("expected validation error for invalid journal ID")
+	}
+	if err := service.DeleteDraft(context.Background(), 1, 0); err == nil {
+		t.Fatal("expected validation error for invalid book ID")
+	}
+	if repository.deleteDraftCalled {
+		t.Fatal("repository DeleteDraft should not be called")
 	}
 }
 

@@ -14,6 +14,7 @@ var (
 	ErrJournalPosted   = errors.New("journal entry already posted")
 	ErrJournalVoided   = errors.New("journal entry already voided")
 	ErrCannotVoidDraft = errors.New("draft entries have no balance effect; delete them instead of voiding")
+	ErrCannotDeletePosted = errors.New("only draft entries can be deleted; void posted entries instead")
 )
 
 type AccountValidator interface {
@@ -260,6 +261,34 @@ func (s *Service) Void(
 		}
 	default:
 		return fmt.Errorf("%w: status %s", ErrInvalidJournal, entry.Status)
+	}
+
+	return nil
+}
+
+func (s *Service) DeleteDraft(
+	ctx context.Context,
+	id int64,
+	bookID int64,
+) error {
+	if id <= 0 {
+		return fmt.Errorf("%w: invalid journal ID", ErrInvalidJournal)
+	}
+	if bookID <= 0 {
+		return fmt.Errorf("%w: invalid book ID", ErrInvalidJournal)
+	}
+
+	entry, err := s.repository.GetByID(ctx, id, bookID)
+	if err != nil {
+		return mapNotFound(id, bookID, err)
+	}
+
+	if entry.Status != StatusDraft {
+		return ErrCannotDeletePosted
+	}
+
+	if err := s.repository.DeleteDraft(ctx, entry.ID, bookID); err != nil {
+		return fmt.Errorf("delete draft entry: %w", err)
 	}
 
 	return nil
