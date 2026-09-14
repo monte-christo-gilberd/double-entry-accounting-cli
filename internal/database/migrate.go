@@ -5,54 +5,31 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io/fs"
 	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/monte-christo-gilberd/double-entry-accounting-cli/migrations"
 )
 
-func findMigrationsDir() string {
-	candidates := []string{
-		"migrations",
-		filepath.Join("..", "migrations"),
-		filepath.Join("..", "..", "migrations"),
-	}
-	if exe, err := os.Executable(); err == nil {
-		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "migrations"))
-		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "..", "migrations"))
-		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "..", "..", "migrations"))
-	}
-	for _, c := range candidates {
-		if info, err := os.Stat(c); err == nil && info.IsDir() {
-			return c
-		}
-	}
-	return "migrations"
-}
-
-// Migrate applies pending *.sql files. It is silent on success (errors
-// still propagate to the caller) so opening the app goes straight from
-// the DB check to the program interface.
+// Migrate applies pending *.sql files embedded in the binary. It is silent
+// on success (errors still propagate to the caller) so opening the app goes
+// straight from the DB check to the program interface.
 func Migrate(ctx context.Context, db *sql.DB) error {
-	migrationsDir := findMigrationsDir()
-	entries, err := os.ReadDir(migrationsDir)
+	entries, err := fs.Glob(migrations.FS, "*.sql")
 	if err != nil {
 		return fmt.Errorf("read migrations dir: %w", err)
 	}
 
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name() < entries[j].Name()
-	})
+	sort.Strings(entries)
 
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+	for _, path := range entries {
+		if !strings.HasSuffix(path, ".sql") {
 			continue
 		}
 
-		path := filepath.Join(migrationsDir, entry.Name())
-		sqlBytes, err := os.ReadFile(path)
+		sqlBytes, err := migrations.FS.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", path, err)
 		}
