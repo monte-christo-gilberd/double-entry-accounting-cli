@@ -289,7 +289,7 @@ func TestPostRejectsAlreadyPostedJournal(t *testing.T) {
 		1,
 	)
 
-	if err != ErrJournalPosted {
+	if !errors.Is(err, ErrJournalPosted) {
 		t.Fatalf(
 			"expected ErrJournalPosted, got %v",
 			err,
@@ -394,7 +394,7 @@ func TestVoidRejectsAlreadyVoidedEntry(t *testing.T) {
 	service := NewService(repository, &mockAccountValidator{})
 
 	err := service.Void(context.Background(), 1, 1)
-	if err != ErrJournalVoided {
+	if !errors.Is(err, ErrJournalVoided) {
 		t.Fatalf("expected ErrJournalVoided, got %v", err)
 	}
 	if repository.createAndVoidCalled {
@@ -412,7 +412,7 @@ func TestVoidRejectsDraftEntry(t *testing.T) {
 	service := NewService(repository, &mockAccountValidator{})
 
 	err := service.Void(context.Background(), 1, 1)
-	if err != ErrCannotVoidDraft {
+	if !errors.Is(err, ErrCannotVoidDraft) {
 		t.Fatalf("expected ErrCannotVoidDraft, got %v", err)
 	}
 	if repository.createAndVoidCalled {
@@ -568,7 +568,7 @@ func TestDeleteDraftRejectsPosted(t *testing.T) {
 	repository := &mockRepository{entry: entry}
 	service := NewService(repository, &mockAccountValidator{})
 
-	if err := service.DeleteDraft(context.Background(), 1, 1); err != ErrCannotDeletePosted {
+	if err := service.DeleteDraft(context.Background(), 1, 1); !errors.Is(err, ErrCannotDeletePosted) {
 		t.Fatalf("expected ErrCannotDeletePosted, got %v", err)
 	}
 	if repository.deleteDraftCalled {
@@ -581,7 +581,7 @@ func TestDeleteDraftRejectsVoided(t *testing.T) {
 	repository := &mockRepository{entry: entry}
 	service := NewService(repository, &mockAccountValidator{})
 
-	if err := service.DeleteDraft(context.Background(), 1, 1); err != ErrCannotDeletePosted {
+	if err := service.DeleteDraft(context.Background(), 1, 1); !errors.Is(err, ErrCannotDeletePosted) {
 		t.Fatalf("expected ErrCannotDeletePosted, got %v", err)
 	}
 	if repository.deleteDraftCalled {
@@ -647,5 +647,66 @@ func TestVoidRejectsInvalidBookID(t *testing.T) {
 	}
 	if repository.createAndVoidCalled {
 		t.Fatal("CreateAndVoid should not be called")
+	}
+}
+
+func TestVoidRejectsReversal(t *testing.T) {
+	orig := int64(1)
+	entry := &JournalEntry{ID: 2, BookID: 1, Status: StatusPosted, ReversalOf: &orig}
+	repository := &mockRepository{entry: entry}
+	service := NewService(repository, &mockAccountValidator{})
+
+	if err := service.Void(context.Background(), 2, 1); !errors.Is(err, ErrCannotVoidReversal) {
+		t.Fatalf("expected ErrCannotVoidReversal, got %v", err)
+	}
+	if repository.createAndVoidCalled {
+		t.Fatal("CreateAndVoid should not be called for a reversal")
+	}
+}
+
+func TestCreateDraftRejectsReversalOf(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+	orig := int64(1)
+	entry := &JournalEntry{
+		BookID: 1, Description: "x", EntryDate: time.Now(), ReversalOf: &orig,
+		Lines: []JournalLine{{AccountID: 1, Debit: 10}, {AccountID: 2, Credit: 10}},
+	}
+	if err := service.CreateDraft(context.Background(), entry); !errors.Is(err, ErrInvalidJournal) {
+		t.Fatalf("expected ErrInvalidJournal, got %v", err)
+	}
+}
+
+func TestPostRejectsReversalEntry(t *testing.T) {
+	orig := int64(1)
+	entry := &JournalEntry{
+		ID: 2, BookID: 1, Description: "x", EntryDate: time.Now(),
+		Status: StatusDraft, ReversalOf: &orig,
+		Lines: []JournalLine{{AccountID: 1, Debit: 10}, {AccountID: 2, Credit: 10}},
+	}
+	repository := &mockRepository{entry: entry}
+	service := NewService(repository, &mockAccountValidator{})
+	if err := service.Post(context.Background(), 2, 1); !errors.Is(err, ErrInvalidJournal) {
+		t.Fatalf("expected ErrInvalidJournal, got %v", err)
+	}
+}
+
+func TestListRecentRejectsInvalidLimit(t *testing.T) {
+	repository := &mockRepository{}
+	service := NewService(repository, &mockAccountValidator{})
+	if _, err := service.ListRecentByBookID(context.Background(), 1, 0); !errors.Is(err, ErrInvalidJournal) {
+		t.Fatalf("expected ErrInvalidJournal for limit<=0, got %v", err)
+	}
+}
+
+func TestBuildReversalCopiesID(t *testing.T) {
+	entry := &JournalEntry{ID: 7, BookID: 1, Description: "sale", Status: StatusPosted}
+	rev := entry.BuildReversal()
+	if rev.ReversalOf == nil || *rev.ReversalOf != 7 {
+		t.Fatalf("expected reversal_of=7, got %+v", rev.ReversalOf)
+	}
+	entry.ID = 99
+	if *rev.ReversalOf != 7 {
+		t.Fatalf("reversal aliased original ID: got %d, want 7", *rev.ReversalOf)
 	}
 }

@@ -276,7 +276,7 @@ func TestValidateBelongsToBookRejectsInvalidBookID(t *testing.T) {
 
 func TestValidateBelongsToBookNotFound(t *testing.T) {
 	repository := &mockRepository{
-		getByIDAndBookIDErr: errors.New("sql: no rows in result set"),
+		getByIDAndBookIDErr: sql.ErrNoRows,
 	}
 	service := NewService(repository)
 
@@ -286,8 +286,22 @@ func TestValidateBelongsToBookNotFound(t *testing.T) {
 	}
 }
 
+func TestValidateBelongsToBookPropagatesDBErrors(t *testing.T) {
+	repository := &mockRepository{
+		getByIDAndBookIDErr: errors.New("connection refused"),
+	}
+	service := NewService(repository)
+
+	err := service.ValidateBelongsToBook(context.Background(), 1, 1)
+	if errors.Is(err, ErrAccountNotFound) {
+		t.Fatalf("DB errors must not map to ErrAccountNotFound, got %v", err)
+	}
+}
+
 func TestUpdate(t *testing.T) {
-	repository := &mockRepository{}
+	repository := &mockRepository{
+		getByIDAndBookIDResult: &Account{ID: 1, BookID: 1, Code: "1000", Name: "Cash", AccountType: "ASSET"},
+	}
 	service := NewService(repository)
 
 	account := &Account{
@@ -385,7 +399,10 @@ func TestCreateMapsDuplicateCode(t *testing.T) {
 }
 
 func TestUpdateMapsDuplicateCode(t *testing.T) {
-	repository := &mockRepository{updateErr: &pgconn.PgError{Code: "23505"}}
+	repository := &mockRepository{
+		getByIDAndBookIDResult: &Account{ID: 1, BookID: 1, Code: "1000", Name: "Cash", AccountType: "ASSET"},
+		updateErr:              &pgconn.PgError{Code: "23505"},
+	}
 	service := NewService(repository)
 
 	account := &Account{ID: 1, BookID: 1, Code: "1000", Name: "Cash", AccountType: "ASSET"}
@@ -496,5 +513,19 @@ func TestDeleteRejectsInvalidBookID(t *testing.T) {
 	}
 	if repository.deleteCalled {
 		t.Fatal("repository Delete should not be called")
+	}
+}
+
+func TestUpdateRejectsTypeChange(t *testing.T) {
+	repository := &mockRepository{
+		getByIDAndBookIDResult: &Account{ID: 1, BookID: 1, Code: "1000", Name: "Cash", AccountType: "ASSET"},
+	}
+	service := NewService(repository)
+	account := &Account{ID: 1, BookID: 1, Code: "1000", Name: "Cash", AccountType: "REVENUE"}
+	if err := service.Update(context.Background(), account, 1); !errors.Is(err, ErrInvalidAccount) {
+		t.Fatalf("expected ErrInvalidAccount for type change, got %v", err)
+	}
+	if repository.updateCalled {
+		t.Fatal("repository Update should not be called on type change")
 	}
 }

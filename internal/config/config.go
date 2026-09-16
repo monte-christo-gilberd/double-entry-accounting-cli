@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -36,6 +38,9 @@ func Load() (*Config, error) {
 	if cfg.DatabasePort == "" {
 		return nil, errors.New("DATABASE_PORT is required")
 	}
+	if _, err := strconv.Atoi(cfg.DatabasePort); err != nil {
+		return nil, errors.New("DATABASE_PORT must be numeric")
+	}
 	if cfg.DatabaseUser == "" {
 		return nil, errors.New("DATABASE_USER is required")
 	}
@@ -44,6 +49,11 @@ func Load() (*Config, error) {
 	}
 	if cfg.DatabaseSSLMode == "" {
 		cfg.DatabaseSSLMode = "disable"
+	}
+	switch strings.ToLower(cfg.DatabaseSSLMode) {
+	case "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
+	default:
+		return nil, errors.New("DATABASE_SSLMODE must be one of disable, allow, prefer, require, verify-ca, verify-full")
 	}
 	return cfg, nil
 }

@@ -34,6 +34,8 @@ func (s *Service) Create(
 	if err := validateAccount(account); err != nil {
 		return err
 	}
+	account.Code = strings.TrimSpace(account.Code)
+	account.Name = strings.TrimSpace(account.Name)
 
 	if err := s.repository.Create(ctx, account); err != nil {
 		if isUniqueViolation(err) {
@@ -72,12 +74,15 @@ func (s *Service) ValidateBelongsToBook(
 
 	_, err := s.repository.GetByIDAndBookID(ctx, accountID, bookID)
 	if err != nil {
-		return fmt.Errorf(
-			"%w: account %d does not belong to book %d",
-			ErrAccountNotFound,
-			accountID,
-			bookID,
-		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf(
+				"%w: account %d does not belong to book %d",
+				ErrAccountNotFound,
+				accountID,
+				bookID,
+			)
+		}
+		return fmt.Errorf("validate account %d in book %d: %w", accountID, bookID, err)
 	}
 	return nil
 }
@@ -91,19 +96,28 @@ func validateAccount(account *Account) error {
 		return fmt.Errorf("%w: invalid book ID", ErrInvalidAccount)
 	}
 
-	if account.Code == "" {
+	code := strings.TrimSpace(account.Code)
+	if code == "" {
 		return fmt.Errorf("%w: code is required", ErrInvalidAccount)
+	}
+	if len(code) > 20 {
+		return fmt.Errorf("%w: code exceeds 20 characters", ErrInvalidAccount)
 	}
 
 	// Codes double as the CLI selection keys (0 finishes, q cancels), so
 	// these values can never address an account and are rejected outright.
-	switch strings.ToLower(account.Code) {
+	// Trimmed + case-folded so " 0 ", " Q " cannot slip through.
+	switch strings.ToLower(code) {
 	case "0", "q", "cancel":
 		return fmt.Errorf("%w: code %q is reserved", ErrInvalidAccount, account.Code)
 	}
 
-	if account.Name == "" {
+	name := strings.TrimSpace(account.Name)
+	if name == "" {
 		return fmt.Errorf("%w: name is required", ErrInvalidAccount)
+	}
+	if len(name) > 100 {
+		return fmt.Errorf("%w: name exceeds 100 characters", ErrInvalidAccount)
 	}
 
 	switch account.AccountType {
@@ -139,6 +153,22 @@ func (s *Service) Update(
 	if account.BookID != bookID {
 		return fmt.Errorf("%w: account belongs to book %d, not book %d", ErrInvalidAccount, account.BookID, bookID)
 	}
+
+	// AccountType feeds normal-balance display (Dr/Cr) for all history.
+	// Changing it rewrites the meaning of past postings, so forbid it:
+	// create a new account instead of retyping an in-use one.
+	existing, err := s.repository.GetByIDAndBookID(ctx, account.ID, bookID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: account %d in book %d", ErrAccountNotFound, account.ID, bookID)
+		}
+		return fmt.Errorf("update account: %w", err)
+	}
+	if existing.AccountType != account.AccountType {
+		return fmt.Errorf("%w: cannot change account type from %q to %q; create a new account instead", ErrInvalidAccount, existing.AccountType, account.AccountType)
+	}
+	account.Code = strings.TrimSpace(account.Code)
+	account.Name = strings.TrimSpace(account.Name)
 
 	if err := s.repository.Update(ctx, account, bookID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -198,6 +228,7 @@ func (s *Service) GetByCodeAndBookID(
 	code string,
 	bookID int64,
 ) (*Account, error) {
+	code = strings.TrimSpace(code)
 	if code == "" || bookID <= 0 {
 		return nil, fmt.Errorf("%w: invalid code or book ID", ErrInvalidAccount)
 	}
@@ -213,7 +244,11 @@ func (s *Service) GetByCodeAndBookID(
 
 func (s *Service) ListByBookID(ctx context.Context, bookID int64) ([]Account, error) {
 	if bookID <= 0 {
-		return nil, ErrInvalidAccount
+		return nil, fmt.Errorf("%w: invalid book ID", ErrInvalidAccount)
 	}
-	return s.repository.ListByBookID(ctx, bookID)
+	accounts, err := s.repository.ListByBookID(ctx, bookID)
+	if err != nil {
+		return nil, fmt.Errorf("list accounts in book %d: %w", bookID, err)
+	}
+	return accounts, nil
 }

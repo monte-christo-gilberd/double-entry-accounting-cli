@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 
 	"github.com/monte-christo-gilberd/double-entry-accounting-cli/internal/account"
 	"github.com/monte-christo-gilberd/double-entry-accounting-cli/internal/book"
@@ -14,7 +15,8 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -30,6 +32,16 @@ func main() {
 
 	defer db.Close()
 
+	for _, arg := range os.Args[1:] {
+		if arg != "migrate" {
+			fmt.Printf("Unknown argument %q (usage: %s [migrate])\n", arg, os.Args[0])
+			os.Exit(2)
+		}
+	}
+	if len(os.Args) > 2 {
+		fmt.Printf("Too many arguments (usage: %s [migrate])\n", os.Args[0])
+		os.Exit(2)
+	}
 	// migrate subcommand: go run ./cmd/accounting migrate (silent on
 	// success; failures print and exit non-zero)
 	if len(os.Args) > 1 && os.Args[1] == "migrate" {

@@ -22,6 +22,12 @@ func ReadLine(text string) (string, error) {
 
 	line, err := reader.ReadString('\n')
 	if err != nil {
+		// bufio returns buffered data together with EOF when stdin closes
+		// mid-line (e.g. piped input without trailing newline). Preserve
+		// that data instead of discarding it as "input closed".
+		if errors.Is(err, io.EOF) && strings.TrimSpace(line) != "" {
+			return strings.TrimSpace(line), nil
+		}
 		return "", mapReadError(err)
 	}
 	return strings.TrimSpace(line), nil
@@ -45,7 +51,7 @@ func ReadRequiredLine(text string) (string, error) {
 		if input != "" {
 			return input, nil
 		}
-		fmt.Println(" cannot be empty.")
+		fmt.Println("  Input cannot be empty.")
 	}
 }
 
@@ -76,7 +82,7 @@ func ReadInt(text string) (int, bool, error) {
 
 	convInput, err := strconv.Atoi(input)
 	if err != nil {
-		fmt.Println(" input must be a number.")
+		fmt.Println("  input must be a number.")
 		return 0, false, nil
 	}
 
@@ -100,11 +106,13 @@ func ReadIntDefault(text string, def int) (int, error) {
 
 // parseIntDefault interprets one raw line: empty means the default, a valid
 // number is accepted, anything else reports ok=false so the caller reprompts.
+// Trims whitespace so direct calls behave like ReadIntDefault (which trims
+// via ReadLine first).
 func parseIntDefault(input string, def int) (int, bool) {
-	if input == "" {
+	if strings.TrimSpace(input) == "" {
 		return def, true
 	}
-	convInput, err := strconv.Atoi(input)
+	convInput, err := strconv.Atoi(strings.TrimSpace(input))
 	if err != nil {
 		return 0, false
 	}
@@ -132,14 +140,19 @@ func ReadFloat(text string) (float64, bool, error) {
 }
 
 func ReadYesNo(text string) (bool, error) {
+	for {
+		input, err := ReadLine(text)
+		if err != nil {
+			return false, err
+		}
 
-	input, err := ReadLine(text)
-	if err != nil {
-		return false, err
+		switch strings.ToLower(strings.TrimSpace(input)) {
+		case "y", "yes":
+			return true, nil
+		case "n", "no", "":
+			return false, nil
+		default:
+			fmt.Println("  Please answer y or n.")
+		}
 	}
-
-	input = strings.ToLower(input)
-
-	return input == "y" || input == "yes", nil
-
 }

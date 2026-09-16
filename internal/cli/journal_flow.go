@@ -43,6 +43,9 @@ func transactionLogMenu(ctx context.Context, bookID int64, accountService *accou
 		case 2:
 			n, err := prompt.ReadIntDefault("Last Log Total (empty = 1): ", 1)
 			if err != nil {
+				if errors.Is(err, prompt.ErrInputClosed) {
+					return
+				}
 				fmt.Println("failed to get transaction log: ", err)
 				continue
 			}
@@ -100,6 +103,9 @@ func loadDetailedEntries(
 	}
 
 	entries := make([]journal.JournalEntry, 0, len(headers))
+	if len(headers) == 0 {
+		return entries, names, nil
+	}
 	for _, h := range headers {
 		full, err := journalService.GetByID(ctx, h.ID, bookID)
 		if err != nil {
@@ -140,10 +146,13 @@ func formatJournalEntry(e journal.JournalEntry, names map[int64]string) string {
 		if name == "" {
 			name = fmt.Sprintf("account #%d", l.AccountID)
 		}
-		if l.Debit > 0 {
+		switch {
+		case l.Debit > 0 && l.Credit == 0:
 			fmt.Fprintf(&sb, "    %-24s Dr %12.2f\n", name, l.Debit)
-		} else {
+		case l.Credit > 0 && l.Debit == 0:
 			fmt.Fprintf(&sb, "    %-24s Cr %12.2f\n", name, l.Credit)
+		default:
+			fmt.Fprintf(&sb, "    %-24s Dr %12.2f Cr %12.2f (invalid: one side must be 0)\n", name, l.Debit, l.Credit)
 		}
 	}
 	return sb.String()
@@ -185,6 +194,7 @@ func viewAccountBalances(
 // form: absolute value with a Dr/Cr suffix based on the account type.
 // ASSET and EXPENSE are normal-debit; LIABILITY, EQUITY and REVENUE are
 // normal-credit. A contra-side balance flips the suffix. Zero prints plain.
+// Dust below half a cent (float aggregation noise) is treated as zero.
 func formatBalance(accountType string, balance float64) string {
 	amount, side := balance, "Dr"
 	if accountType != "ASSET" && accountType != "EXPENSE" {
@@ -198,7 +208,7 @@ func formatBalance(accountType string, balance float64) string {
 			side = "Dr"
 		}
 	}
-	if amount == 0 {
+	if amount < 0.00005 {
 		return "0.00"
 	}
 	return fmt.Sprintf("%.2f %s", amount, side)
@@ -227,7 +237,10 @@ func doTransaction(
 
 	description, err := prompt.ReadLine("Transaction Description (empty to cancel): ")
 	if err != nil {
-		fmt.Println("failed to to transaction:", err)
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
+		fmt.Println("failed to do transaction:", err)
 		return
 	}
 	if description == "" {
@@ -237,7 +250,10 @@ func doTransaction(
 
 	lines, cancelled, err := collectJournalLines(ctx, bookID, accountService)
 	if err != nil {
-		fmt.Println("failed to to transaction:", err)
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
+		fmt.Println("failed to do transaction:", err)
 		return
 	}
 	if cancelled {
@@ -262,15 +278,19 @@ func doTransaction(
 // collectJournalLines prompts for debit/credit lines identified by account
 // code until the user finishes with 0 or cancels with q. It reports
 // cancelled=true on user abort and err only on a hard input read error;
-// anything else skips just that line.
+// anything else skips just that line. Duplicate accounts are rejected
+// immediately and running debit/credit totals are shown so the user gets
+// early feedback instead of a single balance error at the end.
 func collectJournalLines(
 	ctx context.Context,
 	bookID int64,
 	accountService *account.Service,
 ) (lines []journal.JournalLine, cancelled bool, err error) {
+	seen := make(map[int64]struct{})
+	var totalDebit, totalCredit float64
 	for {
 
-		fmt.Printf("\nLine-%d (0 to finish, q to cancel)\n", len(lines)+1)
+		fmt.Printf("\nLine-%d (0 to finish, q to cancel) [Dr %.2f = Cr %.2f]\n", len(lines)+1, totalDebit, totalCredit)
 		raw, err := prompt.ReadLine("  Account code: ")
 		if err != nil {
 			return nil, false, err
@@ -281,6 +301,9 @@ func collectJournalLines(
 			return nil, true, nil
 		}
 		if !valid {
+			if strings.TrimSpace(raw) == "" {
+				fmt.Println("  Enter an account code, 0 to finish, or q to cancel.")
+			}
 			continue
 		}
 		if finish {
@@ -294,6 +317,10 @@ func collectJournalLines(
 		acc, err := accountService.GetByCodeAndBookID(ctx, code, bookID)
 		if err != nil {
 			fmt.Printf("  Unknown account code %q in this book. Line skipped.\n", code)
+			continue
+		}
+		if _, dup := seen[acc.ID]; dup {
+			fmt.Printf("  Account %q already used in this entry (one line per account). Line skipped.\n", code)
 			continue
 		}
 
@@ -321,11 +348,15 @@ func collectJournalLines(
 		line := journal.JournalLine{AccountID: acc.ID}
 		if side == "d" {
 			line.Debit = amount
+			totalDebit += amount
 		} else {
 			line.Credit = amount
+			totalCredit += amount
 		}
+		seen[acc.ID] = struct{}{}
 		lines = append(lines, line)
 	}
+	fmt.Printf("  Totals: Dr %.2f vs Cr %.2f\n", totalDebit, totalCredit)
 	return lines, false, nil
 }
 
@@ -368,6 +399,9 @@ func createDraftTransaction(
 
 	description, err := prompt.ReadLine("Draft Description (empty to cancel): ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("failed to create draft:", err)
 		return
 	}
@@ -378,6 +412,9 @@ func createDraftTransaction(
 
 	lines, cancelled, err := collectJournalLines(ctx, bookID, accountService)
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("failed to create draft:", err)
 		return
 	}
@@ -431,6 +468,9 @@ func postDraftTransaction(ctx context.Context, bookID int64, journalService *jou
 
 	id, ok, err := prompt.ReadInt("Enter draft id to post: ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("failed to post draft:", err)
 		return
 	}
@@ -440,6 +480,9 @@ func postDraftTransaction(ctx context.Context, bookID int64, journalService *jou
 
 	input, err := prompt.ReadYesNo(fmt.Sprintf("Post draft #%d? Balances will be affected. (y/n): ", id))
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("failed to post draft:", err)
 		return
 	}
@@ -475,6 +518,9 @@ func deleteDraftTransaction(ctx context.Context, bookID int64, journalService *j
 
 	id, ok, err := prompt.ReadInt("Enter draft id to delete: ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("failed to delete draft:", err)
 		return
 	}
@@ -484,6 +530,9 @@ func deleteDraftTransaction(ctx context.Context, bookID int64, journalService *j
 
 	input, err := prompt.ReadYesNo(fmt.Sprintf("Delete draft #%d permanently? (y/n): ", id))
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("failed to delete draft:", err)
 		return
 	}
@@ -532,6 +581,9 @@ func cancelTransaction(ctx context.Context, bookID int64, journalService *journa
 
 	id, ok, err := prompt.ReadInt("Enter transaction id that you want to cancel: ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("failed to cancel transaction:", err)
 		return
 	}
@@ -542,6 +594,9 @@ func cancelTransaction(ctx context.Context, bookID int64, journalService *journa
 
 	input, err := prompt.ReadYesNo(fmt.Sprintf("Are you sure about cancelling transaction #%d? (y/n): ", id))
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("failed to cancel transaction:", err)
 		return
 	}

@@ -3,6 +3,7 @@ package journal
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
 
 type PostgresRepository struct {
@@ -19,6 +20,9 @@ func (r *PostgresRepository) Create(
 	ctx context.Context,
 	entry *JournalEntry,
 ) error {
+	if entry.ReversalOf != nil {
+		return fmt.Errorf("create journal entry: reversal_of must be nil on create")
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -113,7 +117,8 @@ func (r *PostgresRepository) GetByID(
 		return nil, err
 	}
 	if reversalOf.Valid {
-		entry.ReversalOf = &reversalOf.Int64
+		v := reversalOf.Int64
+		entry.ReversalOf = &v
 	}
 
 	lines, err := loadJournalLines(ctx, r.db, id)
@@ -172,6 +177,15 @@ func (r *PostgresRepository) CreateAndVoid(
 	reversal *JournalEntry,
 	bookID int64,
 ) error {
+	if reversal == nil {
+		return fmt.Errorf("create reversal: reversal is nil")
+	}
+	if reversal.ReversalOf == nil || *reversal.ReversalOf != originalID {
+		return fmt.Errorf("create reversal: reversal_of must reference original %d", originalID)
+	}
+	if reversal.BookID != bookID {
+		return fmt.Errorf("create reversal: cross-book reversal rejected")
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -273,7 +287,8 @@ func (r *PostgresRepository) ListByBookID(
 			return nil, err
 		}
 		if reversalOf.Valid {
-			entry.ReversalOf = &reversalOf.Int64
+			v := reversalOf.Int64
+			entry.ReversalOf = &v
 		}
 		entries = append(entries, entry)
 	}
@@ -287,16 +302,59 @@ func (r *PostgresRepository) ListDetailedByBookID(
 	ctx context.Context,
 	bookID int64,
 ) ([]JournalEntry, error) {
-	entries, err := r.ListByBookID(ctx, bookID)
+	// Snapshot the headers + lines in one transaction so a concurrent
+	// insert cannot produce phantom/missing lines between queries.
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
+	defer tx.Rollback()
+	const query = `
+		SELECT id, book_id, entry_date, description, status, reversal_of, created_at
+		FROM journal_entries
+		WHERE book_id = $1
+		ORDER BY entry_date, id
+	`
+	rows, err := tx.QueryContext(ctx, query, bookID)
+	if err != nil {
+		return nil, err
+	}
+	var entries []JournalEntry
+	for rows.Next() {
+		var entry JournalEntry
+		var reversalOf sql.NullInt64
+		if err := rows.Scan(
+			&entry.ID,
+			&entry.BookID,
+			&entry.EntryDate,
+			&entry.Description,
+			&entry.Status,
+			&reversalOf,
+			&entry.CreatedAt,
+		); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if reversalOf.Valid {
+			v := reversalOf.Int64
+			entry.ReversalOf = &v
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
 	for i := range entries {
-		lines, err := loadJournalLines(ctx, r.db, entries[i].ID)
+		lines, err := loadJournalLines(ctx, tx, entries[i].ID)
 		if err != nil {
 			return nil, err
 		}
 		entries[i].Lines = lines
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	return entries, nil
 }
@@ -412,7 +470,8 @@ func (r *PostgresRepository) ListRecentByBookID(
 			return nil, err
 		}
 		if reversalOf.Valid {
-			entry.ReversalOf = &reversalOf.Int64
+			v := reversalOf.Int64
+			entry.ReversalOf = &v
 		}
 
 		entries = append(entries, entry)
@@ -435,6 +494,7 @@ func (r *PostgresRepository) GetAccountBalances(
 		FROM journal_lines jl
 		JOIN journal_entries je ON je.id = jl.journal_entry_id
 		WHERE je.book_id = $1
+		  AND jl.book_id = $1
 		  AND je.status = 'POSTED'
 		GROUP BY jl.account_id
 	`

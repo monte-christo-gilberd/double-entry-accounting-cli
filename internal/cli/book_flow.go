@@ -15,12 +15,18 @@ func createBookFlow(ctx context.Context, bookService *book.Service) {
 
 	name, err := prompt.ReadRequiredLine("Book Name: ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("failed to create book:", err)
 		return
 	}
 
 	description, err := prompt.ReadLine("Description (optional): ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("failed to create book:", err)
 		return
 	}
@@ -67,6 +73,9 @@ func selectBookFlow(
 
 	idx, ok, err := prompt.ReadInt("Select book (number): ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("failed to get book:", err)
 		return
 	}
@@ -88,12 +97,15 @@ func deleteBookFlow(ctx context.Context, bookService *book.Service) {
 
 	idx, ok, err := prompt.ReadInt("Select the book you want to delete (number): ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("Failed to delete book:", err)
 		return
 	}
 
 	if !ok || idx < 1 || idx > len(books) {
-		fmt.Println("invalid choice.")
+		fmt.Println("Invalid choice.")
 		return
 	}
 	selected := books[idx-1]
@@ -102,6 +114,9 @@ func deleteBookFlow(ctx context.Context, bookService *book.Service) {
 
 	input, err := prompt.ReadYesNo("Are you sure? (y/n): ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("Failed to delete book:", err)
 		return
 	}

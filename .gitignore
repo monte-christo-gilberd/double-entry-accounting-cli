@@ -39,3 +39,5 @@ Thumbs.db
 # Local simulation notes (scratch, never commit)
 # =========================
 SIMULATION.md
+
+bugfix-report/

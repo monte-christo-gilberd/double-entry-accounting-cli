@@ -21,7 +21,7 @@ func TestParseIntDefault(t *testing.T) {
 		{name: "negative accepted", input: "-3", def: 1, want: -3, wantOK: true},
 		{name: "garbage rejected", input: "abc", def: 1, want: 0, wantOK: false},
 		{name: "float rejected", input: "2.5", def: 1, want: 0, wantOK: false},
-		{name: "whitespace rejected", input: "  ", def: 1, want: 0, wantOK: false},
+		{name: "whitespace uses default (trimmed like ReadLine)", input: "  ", def: 1, want: 1, wantOK: true},
 	}
 
 	for _, tc := range cases {

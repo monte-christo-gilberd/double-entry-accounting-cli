@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,15 +13,25 @@ import (
 func addAccount(ctx context.Context, bookID int64, accountService *account.Service) {
 	code, err := prompt.ReadRequiredLine("Account code (eg. 1000): ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("Failed to create account:", err)
 		return
 	}
 	name, err := prompt.ReadRequiredLine("Account name: ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("Failed to create account:", err)
 		return
 	}
-	accType := readAccountType()
+	accType, ok := readAccountType()
+	if !ok {
+		fmt.Println("Cancelled.")
+		return
+	}
 
 	a := &account.Account{
 		BookID:      bookID,
@@ -36,19 +47,21 @@ func addAccount(ctx context.Context, bookID int64, accountService *account.Servi
 	fmt.Printf("Account created: %s - %s\n", a.Code, a.Name)
 }
 
-func readAccountType() string {
+func readAccountType() (string, bool) {
 	for {
 		fmt.Println("Account Type: ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE")
-		accType, err := prompt.ReadRequiredLine("Select type: ")
+		accType, err := prompt.ReadLine("Select type (empty to cancel): ")
 		if err != nil {
-			fmt.Println("Failed to read account type:", err)
-			return ""
+			return "", false
+		}
+		if accType == "" {
+			return "", false
 		}
 
 		accType = strings.ToUpper(accType)
 		switch accType {
 		case "ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE":
-			return accType
+			return accType, true
 		default:
 			fmt.Println("  Invalid Type.")
 		}
@@ -78,6 +91,9 @@ func editAccount(ctx context.Context, bookID int64, accountService *account.Serv
 
 	code, err := prompt.ReadLine("Account code that you want to edit (empty to cancel): ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("Failed to edit account:", err)
 		return
 	}
@@ -95,29 +111,26 @@ func editAccount(ctx context.Context, bookID int64, accountService *account.Serv
 	fmt.Println("Empty input to use previous name.")
 	a.Code, err = prompt.ReadLineDefault(fmt.Sprintf("Code [%s]: ", a.Code), a.Code)
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("Failed to edit account:", err)
 		return
 	}
 
 	a.Name, err = prompt.ReadLineDefault(fmt.Sprintf("Name [%s]: ", a.Name), a.Name)
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("Failed to edit account:", err)
 		return
 	}
 
-	fmt.Printf("Account Type Currently: %s\n", a.AccountType)
-	input, err := prompt.ReadYesNo("Change type? (y/n): ")
-	if err != nil {
-		fmt.Println("Failed to edit account:", err)
-		return
-	}
-
-	if input {
-		a.AccountType = readAccountType()
-	}
+	fmt.Printf("Account Type: %s (type cannot be changed; create a new account for a different type)\n", a.AccountType)
 
 	if err := accountService.Update(ctx, a, bookID); err != nil {
-		fmt.Println("Failed to account:", err)
+		fmt.Println("Failed to update account:", err)
 		return
 	}
 	fmt.Println("Account successfully updated.")
@@ -130,6 +143,9 @@ func deleteAccount(ctx context.Context, bookID int64, accountService *account.Se
 
 	code, err := prompt.ReadLine("Account code that you want to delete (empty to cancel): ")
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("Failed to delete account:", err)
 		return
 	}
@@ -146,6 +162,9 @@ func deleteAccount(ctx context.Context, bookID int64, accountService *account.Se
 
 	input, err := prompt.ReadYesNo(fmt.Sprintf("Are you sure to delete %q? (y/n): ", del.Code+" - "+del.Name))
 	if err != nil {
+		if errors.Is(err, prompt.ErrInputClosed) {
+			return
+		}
 		fmt.Println("Failed to delete account:", err)
 		return
 	}
